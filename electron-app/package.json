@@ -11,6 +11,7 @@
   },
   "dependencies": {
     "@aws-sdk/client-ses": "^3.616.0",
+    "dotenv": "^17.4.2",
     "exceljs": "^4.4.0",
     "mongodb": "^6.8.0",
     "node-cron": "^3.0.3",

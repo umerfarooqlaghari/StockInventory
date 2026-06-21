@@ -1,15 +1,16 @@
 'use strict';
+require('dotenv').config({ path: require('path').join(__dirname, '..', '.env') });
 const { SESClient, SendEmailCommand } = require('@aws-sdk/client-ses');
 
 const ses = new SESClient({
-  region: 'us-east-1',
+  region: process.env.AWS_REGION || 'us-east-1',
   credentials: {
-    accessKeyId: 'AWS_KEY_FROM_ENV',
-    secretAccessKey: 'AWS_SECRET_FROM_ENV',
+    accessKeyId:     process.env.AWS_ACCESS_KEY_ID,
+    secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY,
   },
 });
 
-const FROM_EMAIL = 'info@alpha-devs.cloud';
+const FROM_EMAIL = process.env.SES_FROM_EMAIL || 'info@alpha-devs.cloud';
 
 function renderTemplate(template, vars) {
   return template.replace(/\{(\w+)\}/g, (_, key) => vars[key] ?? `{${key}}`);

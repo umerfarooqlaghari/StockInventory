@@ -1,8 +1,9 @@
 'use strict';
+require('dotenv').config({ path: require('path').join(__dirname, '..', '.env') });
 const { MongoClient, ObjectId } = require('mongodb');
 
-const MONGO_URI = 'MONGO_URI_FROM_ENV';
-const DB_NAME = 'StockInventoryDB';
+const MONGO_URI = process.env.MONGO_URI;
+const DB_NAME   = process.env.MONGO_DB_NAME || 'StockInventoryDB';
 
 let client = null;
 let db = null;
