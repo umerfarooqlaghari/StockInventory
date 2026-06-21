@@ -1,0 +1,29 @@
+{
+  "name": "stock-inventory-manager",
+  "version": "1.0.0",
+  "description": "Printing Plates Stock Inventory Management System",
+  "main": "electron.cjs",
+  "scripts": {
+    "dev": "concurrently -k \"vite\" \"wait-on http://localhost:5173 && cross-env NODE_ENV=development electron .\"",
+    "build": "vite build",
+    "start": "cross-env NODE_ENV=production NODE_NO_WARNINGS=1 electron .",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "@aws-sdk/client-ses": "^3.616.0",
+    "exceljs": "^4.4.0",
+    "mongodb": "^6.8.0",
+    "node-cron": "^3.0.3",
+    "pdfkit": "^0.15.0"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-react": "^4.3.1",
+    "concurrently": "^8.2.2",
+    "cross-env": "^7.0.3",
+    "electron": "^31.3.1",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "vite": "^5.4.1",
+    "wait-on": "^7.2.0"
+  }
+}
