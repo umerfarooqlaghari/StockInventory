@@ -6,9 +6,10 @@ import Clients from './pages/Clients.jsx';
 import Sales from './pages/Sales.jsx';
 import Purchases from './pages/Purchases.jsx';
 import Suppliers from './pages/Suppliers.jsx';
+import MasterData from './pages/MasterData.jsx';
 import Settings from './pages/Settings.jsx';
 
-const PAGES = { dashboard: Dashboard, inventory: Inventory, clients: Clients, sales: Sales, purchases: Purchases, suppliers: Suppliers, settings: Settings };
+const PAGES = { dashboard: Dashboard, inventory: Inventory, masterdata: MasterData, clients: Clients, sales: Sales, purchases: Purchases, suppliers: Suppliers, settings: Settings };
 
 export default function App() {
   const [page, setPage] = useState('dashboard');

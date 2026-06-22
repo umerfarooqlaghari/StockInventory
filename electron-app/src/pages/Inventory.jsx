@@ -14,8 +14,9 @@ export default function Inventory() {
   const [error, setError] = useState('');
   const [importResult, setImportResult] = useState(null);
   const [filterLow, setFilterLow] = useState(false);
-  const [plateSizes, setPlateSizes] = useState([]);
+  const [masterLists, setMasterLists] = useState({ categories: [], sizes: [], stockNames: [] });
   const [suppliers, setSuppliers] = useState([]);
+  const [historyItem, setHistoryItem] = useState(null);
 
   const load = useCallback(async (q) => {
     setLoading(true);
@@ -26,7 +27,7 @@ export default function Inventory() {
 
   useEffect(() => {
     load('');
-    window.api.getConfig().then((r) => { if (r.ok) setPlateSizes(r.data.PlateSizes || []); });
+    window.api.getMasterDataLists().then((r) => { if (r.ok) setMasterLists(r.data); });
     window.api.getSuppliers('').then((r) => { if (r.ok) setSuppliers(r.data); });
   }, [load]);
 
@@ -35,8 +36,12 @@ export default function Inventory() {
     return () => clearTimeout(t);
   }, [search, load]);
 
-  function openAdd() { setForm({ ...EMPTY_ITEM }); setEditId(null); setError(''); }
+  function openAdd() {
+    window.api.getMasterDataLists().then((r) => { if (r.ok) setMasterLists(r.data); });
+    setForm({ ...EMPTY_ITEM }); setEditId(null); setError('');
+  }
   function openEdit(item) {
+    window.api.getMasterDataLists().then((r) => { if (r.ok) setMasterLists(r.data); });
     setForm({
       ...item,
       PurchasePrice: item.PurchasePrice ?? '',
@@ -160,6 +165,7 @@ export default function Inventory() {
                         <td>{fmt(item.CurrentStock * item.PurchasePrice)}</td>
                         <td>
                           <div className="table-actions">
+                            <button className="btn btn-secondary btn-sm" title="Stock history" onClick={() => setHistoryItem(item)}>History</button>
                             <button className="btn-icon" title="Edit" onClick={() => openEdit(item)}>✏</button>
                             <button className="btn-icon danger" title="Delete" onClick={() => remove(item)}>🗑</button>
                           </div>
@@ -195,26 +201,50 @@ export default function Inventory() {
             </div>
             <div className="form-group" style={{ gridColumn: 'span 2' }}>
               <label className="form-label">Stock Name *</label>
-              <input className="form-input" placeholder="e.g. Aluminum Plate" value={form.StockName} onChange={(e) => setForm({ ...form, StockName: e.target.value })} />
+              <select
+                className="form-select"
+                value={form.StockName}
+                onChange={(e) => setForm({ ...form, StockName: e.target.value })}
+              >
+                <option value="">— Select stock name —</option>
+                {masterLists.stockNames.map((n) => <option key={n} value={n}>{n}</option>)}
+                {form.StockName && !masterLists.stockNames.includes(form.StockName) && (
+                  <option value={form.StockName}>{form.StockName}</option>
+                )}
+              </select>
+              {masterLists.stockNames.length === 0 && (
+                <p style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 4 }}>Add stock names under Master Data in the sidebar.</p>
+              )}
             </div>
           </div>
           <div className="form-row form-row-3">
             <div className="form-group">
               <label className="form-label">Plate Size</label>
-              <input
-                className="form-input"
-                list="plate-sizes-list"
-                placeholder="e.g. 25x35"
+              <select
+                className="form-select"
                 value={form.PlateSize}
                 onChange={(e) => setForm({ ...form, PlateSize: e.target.value })}
-              />
-              <datalist id="plate-sizes-list">
-                {plateSizes.map((s) => <option key={s} value={s} />)}
-              </datalist>
+              >
+                <option value="">— Select size —</option>
+                {masterLists.sizes.map((s) => <option key={s} value={s}>{s}</option>)}
+                {form.PlateSize && !masterLists.sizes.includes(form.PlateSize) && (
+                  <option value={form.PlateSize}>{form.PlateSize}</option>
+                )}
+              </select>
             </div>
             <div className="form-group">
               <label className="form-label">Category</label>
-              <input className="form-input" placeholder="Category" value={form.Category} onChange={(e) => setForm({ ...form, Category: e.target.value })} />
+              <select
+                className="form-select"
+                value={form.Category}
+                onChange={(e) => setForm({ ...form, Category: e.target.value })}
+              >
+                <option value="">— Select category —</option>
+                {masterLists.categories.map((c) => <option key={c} value={c}>{c}</option>)}
+                {form.Category && !masterLists.categories.includes(form.Category) && (
+                  <option value={form.Category}>{form.Category}</option>
+                )}
+              </select>
             </div>
             <div className="form-group">
               <label className="form-label">Supplier</label>
@@ -269,6 +299,128 @@ export default function Inventory() {
           </div>
         </Modal>
       )}
+
+      {historyItem && (
+        <InventoryHistoryModal item={historyItem} onClose={() => setHistoryItem(null)} />
+      )}
     </>
+  );
+}
+
+const EVENT_LABELS = {
+  opening: 'Opening Stock',
+  purchase: 'Purchase Order',
+  purchase_reversal: 'PO Reversed',
+  sale: 'Sale',
+  sale_reversal: 'Invoice Deleted',
+  return: 'Return',
+  adjustment: 'Adjustment',
+};
+
+const EVENT_BADGE = {
+  opening: 'badge-gray',
+  purchase: 'badge-green',
+  purchase_reversal: 'badge-yellow',
+  sale: 'badge-blue',
+  sale_reversal: 'badge-yellow',
+  return: 'badge-purple',
+  adjustment: 'badge-gray',
+};
+
+function InventoryHistoryModal({ item, onClose }) {
+  const [data, setData] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [rebuilding, setRebuilding] = useState(false);
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    const res = await window.api.getInventoryHistory(item._id?.toString() || item._id);
+    if (res.ok) setData(res.data);
+    setLoading(false);
+  }, [item]);
+
+  useEffect(() => { load(); }, [load]);
+
+  async function rebuild() {
+    setRebuilding(true);
+    await window.api.rebuildInventoryHistory(item._id?.toString() || item._id);
+    await load();
+    setRebuilding(false);
+  }
+
+  const fmtDate = (d) => d ? new Date(d).toLocaleString('en-PK', { dateStyle: 'medium', timeStyle: 'short' }) : '—';
+  const fmtQty = (n) => {
+    const v = Number(n) || 0;
+    return v > 0 ? `+${v}` : String(v);
+  };
+
+  return (
+    <Modal
+      title={`Stock History — ${item.StockName}`}
+      onClose={onClose}
+      wide
+      footer={
+        <>
+          <button className="btn btn-secondary btn-sm" onClick={rebuild} disabled={rebuilding || loading}>
+            {rebuilding ? 'Rebuilding…' : '↻ Rebuild from records'}
+          </button>
+          <button className="btn btn-secondary" onClick={onClose}>Close</button>
+        </>
+      }
+    >
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 12, marginBottom: 16 }}>
+        {[['Code', item.ItemCode || '—'], ['Size', item.PlateSize || '—'], ['Current Stock', `${data?.currentStock ?? item.CurrentStock} ${item.Unit || 'Pcs'}`], ['Events', data?.events?.length ?? '—']].map(([l, v]) => (
+          <div key={l} style={{ background: 'var(--bg)', borderRadius: 6, padding: '10px 14px' }}>
+            <div style={{ fontSize: 11, color: 'var(--text-muted)', fontWeight: 600 }}>{l}</div>
+            <div style={{ fontWeight: 600, marginTop: 2 }}>{v}</div>
+          </div>
+        ))}
+      </div>
+
+      {loading ? (
+        <div className="loading-center"><div className="spinner" /></div>
+      ) : !data?.events?.length ? (
+        <div className="empty-state"><p>No movement recorded yet for this item.</p></div>
+      ) : (
+        <div className="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Date</th>
+                <th>Type</th>
+                <th>Reference</th>
+                <th>Party</th>
+                <th className="text-right">Qty</th>
+                <th className="text-right">Balance</th>
+                <th className="text-right">Price</th>
+                <th>Notes</th>
+              </tr>
+            </thead>
+            <tbody>
+              {data.events.map((ev) => (
+                <tr key={ev._id}>
+                  <td className="text-muted" style={{ fontSize: 12, whiteSpace: 'nowrap' }}>{fmtDate(ev.EventDate)}</td>
+                  <td>
+                    <span className={`badge ${EVENT_BADGE[ev.EventType] || 'badge-gray'}`}>
+                      {EVENT_LABELS[ev.EventType] || ev.EventType}
+                    </span>
+                  </td>
+                  <td className="mono" style={{ fontSize: 12 }}>{ev.ReferenceNumber || '—'}</td>
+                  <td>{ev.PartyName || '—'}</td>
+                  <td className="text-right fw-bold" style={{ color: ev.QuantityChange > 0 ? 'var(--green)' : ev.QuantityChange < 0 ? 'var(--red)' : 'inherit' }}>
+                    {fmtQty(ev.QuantityChange)} {ev.Unit || item.Unit}
+                  </td>
+                  <td className="text-right">{ev.BalanceAfter} {ev.Unit || item.Unit}</td>
+                  <td className="text-right text-muted" style={{ fontSize: 12 }}>
+                    {ev.UnitPrice != null ? fmt(ev.UnitPrice) : ev.UnitCost != null ? fmt(ev.UnitCost) : '—'}
+                  </td>
+                  <td className="text-muted" style={{ fontSize: 12, maxWidth: 180 }}>{ev.Notes || '—'}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </Modal>
   );
 }

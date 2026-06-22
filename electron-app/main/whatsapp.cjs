@@ -1,6 +1,11 @@
 'use strict';
 
-const twilio = require('twilio');
+let twilioModule = null;
+
+function getTwilio() {
+  if (!twilioModule) twilioModule = require('twilio');
+  return twilioModule;
+}
 
 function fmtPkr(n) {
   return Number(n || 0).toLocaleString('en-PK', { minimumFractionDigits: 2 });
@@ -25,6 +30,7 @@ function getTwilioClient() {
   if (!accountSid) {
     throw new Error('TWILIO_ACCOUNT_SID is missing in .env — copy the AC... value from console.twilio.com (Account Info on the dashboard home page)');
   }
+  const twilio = getTwilio();
   if (apiKeySid && apiKeySecret) {
     return twilio(apiKeySid, apiKeySecret, { accountSid });
   }

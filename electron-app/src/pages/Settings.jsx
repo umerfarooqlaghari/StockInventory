@@ -292,18 +292,6 @@ export default function Settings() {
             </div>
           </div>
 
-          {/* Plate Sizes */}
-          <div className="card card-body">
-            <h3 style={{ fontWeight: 700, fontSize: 14, marginBottom: 4 }}>Plate Sizes List</h3>
-            <p style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 14 }}>
-              Manage the standard sizes shown as suggestions when adding inventory items.
-            </p>
-            <PlateSizeManager
-              sizes={config.PlateSizes || []}
-              onChange={(sizes) => set('PlateSizes', sizes)}
-            />
-          </div>
-
           {/* Excel Import */}
           <div className="card card-body" style={{ gridColumn: 'span 2' }}>
             <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: 4 }}>
@@ -429,41 +417,6 @@ function EmailListManager({ emails, onChange }) {
           value={newEmail}
           onChange={(ev) => setNewEmail(ev.target.value)}
           onKeyDown={(ev) => ev.key === 'Enter' && add()}
-          style={{ flex: 1 }}
-        />
-        <button className="btn btn-secondary btn-sm" onClick={add}>+ Add</button>
-      </div>
-    </div>
-  );
-}
-
-function PlateSizeManager({ sizes, onChange }) {
-  const [newSize, setNewSize] = useState('');
-  function add() {
-    const v = newSize.trim();
-    if (!v || sizes.includes(v)) return;
-    onChange([...sizes, v]);
-    setNewSize('');
-  }
-  function remove(s) { onChange(sizes.filter((x) => x !== s)); }
-  return (
-    <div>
-      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginBottom: 12 }}>
-        {sizes.length === 0 && <span style={{ color: 'var(--text-muted)', fontSize: 13 }}>No sizes defined</span>}
-        {sizes.map((s) => (
-          <span key={s} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, background: 'var(--bg)', border: '1px solid var(--border)', borderRadius: 6, padding: '4px 10px', fontSize: 13, fontWeight: 600 }}>
-            {s}
-            <button onClick={() => remove(s)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-muted)', fontSize: 14, lineHeight: 1, padding: 0 }}>✕</button>
-          </span>
-        ))}
-      </div>
-      <div style={{ display: 'flex', gap: 8, maxWidth: 300 }}>
-        <input
-          className="form-input"
-          placeholder="e.g. 25x38"
-          value={newSize}
-          onChange={(e) => setNewSize(e.target.value)}
-          onKeyDown={(e) => e.key === 'Enter' && add()}
           style={{ flex: 1 }}
         />
         <button className="btn btn-secondary btn-sm" onClick={add}>+ Add</button>

@@ -13,6 +13,8 @@ contextBridge.exposeInMainWorld('api', {
   createItem: (item) => ipcRenderer.invoke('inventory:create', item),
   updateItem: (item) => ipcRenderer.invoke('inventory:update', item),
   deleteItem: (id) => ipcRenderer.invoke('inventory:delete', id),
+  getInventoryHistory: (itemId) => ipcRenderer.invoke('inventory:getHistory', itemId),
+  rebuildInventoryHistory: (itemId) => ipcRenderer.invoke('inventory:rebuildHistory', itemId),
   importInventoryExcel: (filePath) => ipcRenderer.invoke('inventory:importExcel', filePath),
   exportInventoryExcel: () => ipcRenderer.invoke('inventory:exportExcel'),
   importClientsExcel: (filePath) => ipcRenderer.invoke('clients:importExcel', filePath),
@@ -36,8 +38,10 @@ contextBridge.exposeInMainWorld('api', {
 
   // Purchases
   getPurchases: () => ipcRenderer.invoke('purchases:getAll'),
+  getPurchaseSummary: () => ipcRenderer.invoke('purchases:getSummary'),
   createPurchase: (purchase) => ipcRenderer.invoke('purchases:create', purchase),
   updatePurchase: (purchase) => ipcRenderer.invoke('purchases:update', purchase),
+  updatePurchaseStatus: (id, status, statusNotes, receivedItems) => ipcRenderer.invoke('purchases:updateStatus', id, status, statusNotes, receivedItems),
   deletePurchase: (id) => ipcRenderer.invoke('purchases:delete', id),
 
   // Suppliers
@@ -45,6 +49,13 @@ contextBridge.exposeInMainWorld('api', {
   createSupplier: (s) => ipcRenderer.invoke('suppliers:create', s),
   updateSupplier: (s) => ipcRenderer.invoke('suppliers:update', s),
   deleteSupplier: (id) => ipcRenderer.invoke('suppliers:delete', id),
+
+  // Master data
+  getMasterData: (type) => ipcRenderer.invoke('masterData:getAll', type),
+  getMasterDataLists: () => ipcRenderer.invoke('masterData:getLists'),
+  createMasterData: (entry) => ipcRenderer.invoke('masterData:create', entry),
+  updateMasterData: (entry) => ipcRenderer.invoke('masterData:update', entry),
+  deleteMasterData: (id) => ipcRenderer.invoke('masterData:delete', id),
 
   // Config
   getConfig: () => ipcRenderer.invoke('config:get'),

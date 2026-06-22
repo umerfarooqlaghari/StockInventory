@@ -27,6 +27,7 @@ async function connect() {
     await client.connect();
     db = client.db(DB_NAME);
     await ensureIndexes();
+    await ensureMasterDataSeed();
     lastConnectError = null;
     console.log('MongoDB connected');
     return db;
@@ -59,12 +60,82 @@ async function disconnect() {
 }
 
 async function ensureIndexes() {
+  await migrateLegacySchema();
   await db.collection('inventory_items').createIndex({ ItemCode: 1 }, { unique: true, sparse: true });
   await db.collection('clients').createIndex({ ClientCode: 1 }, { unique: true, sparse: true });
   await db.collection('sales').createIndex({ InvoiceNumber: 1 }, { unique: true, sparse: true });
   await db.collection('purchases').createIndex({ PurchaseNumber: 1 }, { unique: true, sparse: true });
   await db.collection('sales').createIndex({ ClientId: 1 });
   await db.collection('sales').createIndex({ PaymentStatus: 1 });
+  await db.collection('master_data').createIndex({ Type: 1, Name: 1 }, { unique: true });
+  await db.collection('master_data').createIndex({ Type: 1, SortOrder: 1 });
+  await db.collection('inventory_history').createIndex({ InventoryItemId: 1, EventDate: 1 });
+}
+
+// Old MAUI schema used snake_case fields with non-sparse unique indexes.
+// New docs use PascalCase, leaving snake_case null → duplicate key on 2nd insert.
+async function dropLegacyIndex(collection, indexName) {
+  const indexes = await collection.indexes();
+  if (indexes.some((i) => i.name === indexName)) {
+    await collection.dropIndex(indexName);
+    console.log(`Dropped legacy index ${indexName}`);
+  }
+}
+
+async function migrateLegacySchema() {
+  const inventory = db.collection('inventory_items');
+  await dropLegacyIndex(inventory, 'item_code_1');
+  await inventory.updateMany(
+    { ItemCode: { $exists: false }, item_code: { $exists: true, $ne: null } },
+    [{ $set: { ItemCode: '$item_code' } }]
+  );
+
+  const clients = db.collection('clients');
+  await dropLegacyIndex(clients, 'client_code_1');
+  await clients.updateMany(
+    { ClientCode: { $exists: false }, client_code: { $exists: true, $ne: null } },
+    [{ $set: { ClientCode: '$client_code' } }]
+  );
+
+  const sales = db.collection('sales');
+  await dropLegacyIndex(sales, 'invoice_number_1');
+  await sales.updateMany(
+    { InvoiceNumber: { $exists: false }, invoice_number: { $exists: true, $ne: null } },
+    [{ $set: { InvoiceNumber: '$invoice_number' } }]
+  );
+
+  const purchases = db.collection('purchases');
+  await dropLegacyIndex(purchases, 'purchase_number_1');
+  await purchases.updateMany(
+    { PurchaseNumber: { $exists: false }, purchase_number: { $exists: true, $ne: null } },
+    [{ $set: { PurchaseNumber: '$purchase_number' } }]
+  );
+}
+
+const MASTER_DATA_DEFAULTS = {
+  category: ['Aluminum', 'Zinc', 'CTP', 'Other'],
+  size: ['12x18', '18x24', '20x30', '25x35', '30x40', '32x45'],
+  stock_name: ['Aluminum Plate', 'Zinc Plate', 'CTP Plate'],
+};
+
+async function ensureMasterDataSeed() {
+  const cfg = await col('configuration').findOne({});
+  for (const [type, defaults] of Object.entries(MASTER_DATA_DEFAULTS)) {
+    const count = await col('master_data').countDocuments({ Type: type });
+    if (count > 0) continue;
+    let names = defaults;
+    if (type === 'size' && cfg?.PlateSizes?.length) names = cfg.PlateSizes;
+    const docs = names
+      .map((Name, i) => ({
+        Type: type,
+        Name: String(Name).trim(),
+        SortOrder: i,
+        CreatedAt: new Date(),
+        UpdatedAt: new Date(),
+      }))
+      .filter((d) => d.Name);
+    if (docs.length) await col('master_data').insertMany(docs);
+  }
 }
 
 function col(name) { return requireDb().collection(name); }
@@ -138,29 +209,244 @@ async function createItem(item) {
   item.SalePrice = Number(item.SalePrice) || 0;
   item.ReorderLevel = Number(item.ReorderLevel) || 10;
   const result = await col('inventory_items').insertOne(item);
-  return { ...item, _id: result.insertedId };
+  const saved = { ...item, _id: result.insertedId };
+  if (saved.CurrentStock > 0) {
+    await logInventoryEvent({
+      InventoryItemId: result.insertedId,
+      ItemCode: saved.ItemCode,
+      StockName: saved.StockName,
+      PlateSize: saved.PlateSize || '',
+      Unit: saved.Unit || 'Pcs',
+      EventType: 'opening',
+      QuantityChange: saved.CurrentStock,
+      BalanceAfter: saved.CurrentStock,
+      ReferenceType: 'manual',
+      ReferenceNumber: '—',
+      PartyName: '—',
+      Notes: 'Opening stock',
+      EventDate: saved.CreatedAt,
+    });
+  }
+  return saved;
 }
 
 async function updateItem(item) {
   const { _id, ...data } = item;
+  const existing = await col('inventory_items').findOne({ _id: oid(_id) });
+  if (!existing) throw new Error('Item not found');
+
+  const oldStock = Number(existing.CurrentStock) || 0;
   data.UpdatedAt = new Date();
   data.CurrentStock = Number(data.CurrentStock) || 0;
   data.PurchasePrice = Number(data.PurchasePrice) || 0;
   data.SalePrice = Number(data.SalePrice) || 0;
   data.ReorderLevel = Number(data.ReorderLevel) || 10;
   await col('inventory_items').updateOne({ _id: oid(_id) }, { $set: data });
+
+  const stockDiff = data.CurrentStock - oldStock;
+  if (stockDiff !== 0) {
+    await logInventoryEvent({
+      InventoryItemId: oid(_id),
+      ItemCode: data.ItemCode || existing.ItemCode,
+      StockName: data.StockName || existing.StockName,
+      PlateSize: data.PlateSize || existing.PlateSize || '',
+      Unit: data.Unit || existing.Unit || 'Pcs',
+      EventType: 'adjustment',
+      QuantityChange: stockDiff,
+      BalanceAfter: data.CurrentStock,
+      ReferenceType: 'manual',
+      ReferenceNumber: '—',
+      PartyName: '—',
+      Notes: 'Manual stock adjustment',
+      EventDate: new Date(),
+    });
+  }
+
   return { _id, ...data };
 }
 
 async function deleteItem(id) {
+  await col('inventory_history').deleteMany({ InventoryItemId: oid(id) });
   await col('inventory_items').deleteOne({ _id: oid(id) });
 }
 
-async function updateStock(itemId, quantityChange) {
+function itemIdMatches(storedId, targetId) {
+  if (storedId == null || targetId == null) return false;
+  return storedId.toString() === targetId.toString();
+}
+
+async function logInventoryEvent(entry) {
+  entry.CreatedAt = new Date();
+  entry.EventDate = entry.EventDate ? new Date(entry.EventDate) : new Date();
+  await col('inventory_history').insertOne(entry);
+}
+
+async function updateStock(itemId, quantityChange, meta = null) {
+  const item = await col('inventory_items').findOne({ _id: oid(itemId) });
+  if (!item) return;
+  const change = Number(quantityChange) || 0;
+  const newStock = (Number(item.CurrentStock) || 0) + change;
   await col('inventory_items').updateOne(
     { _id: oid(itemId) },
-    { $inc: { CurrentStock: quantityChange }, $set: { UpdatedAt: new Date() } }
+    { $inc: { CurrentStock: change }, $set: { UpdatedAt: new Date() } }
   );
+  if (meta) {
+    await logInventoryEvent({
+      ...meta,
+      InventoryItemId: oid(itemId),
+      ItemCode: item.ItemCode,
+      StockName: item.StockName,
+      PlateSize: item.PlateSize || '',
+      Unit: item.Unit || 'Pcs',
+      QuantityChange: change,
+      BalanceAfter: newStock,
+      EventDate: meta.EventDate || new Date(),
+    });
+  }
+}
+
+async function rebuildInventoryHistory(itemId) {
+  const item = await col('inventory_items').findOne({ _id: oid(itemId) });
+  if (!item) throw new Error('Item not found');
+
+  const idStr = oid(itemId).toString();
+  const events = [];
+
+  const purchases = await col('purchases').find({
+    $or: [{ 'Items.InventoryItemId': idStr }, { 'Items.InventoryItemId': oid(itemId) }],
+  }).toArray();
+
+  for (const po of purchases) {
+    if (!purchaseAppliesInventory(normalizePurchaseStatus(po.Status))) continue;
+    for (const line of (po.Items || [])) {
+      if (!itemIdMatches(line.InventoryItemId, itemId)) continue;
+      const receivedQty = getLineReceivedQty(line);
+      const varianceNote = receiptNoteForLine(line);
+      events.push({
+        EventType: 'purchase',
+        EventDate: po.PurchaseDate || po.CreatedAt,
+        QuantityChange: receivedQty,
+        ReferenceType: 'purchase',
+        ReferenceId: po._id,
+        ReferenceNumber: po.PurchaseNumber || '—',
+        PartyName: po.SupplierName || '—',
+        UnitCost: Number(line.UnitCost) || 0,
+        LineTotal: Number(line.ReceivedLineTotal) || receivedQty * (Number(line.UnitCost) || 0),
+        Notes: [po.Notes, varianceNote].filter(Boolean).join(' · '),
+      });
+    }
+  }
+
+  const sales = await col('sales').find({
+    $or: [{ 'Items.InventoryItemId': idStr }, { 'Items.InventoryItemId': oid(itemId) }],
+  }).toArray();
+
+  for (const sale of sales) {
+    for (const line of (sale.Items || [])) {
+      if (!itemIdMatches(line.InventoryItemId, itemId)) continue;
+      const qty = Number(line.Quantity) || 0;
+      events.push({
+        EventType: 'sale',
+        EventDate: sale.SaleDate || sale.CreatedAt,
+        QuantityChange: -qty,
+        ReferenceType: 'sale',
+        ReferenceId: sale._id,
+        ReferenceNumber: sale.InvoiceNumber || '—',
+        PartyName: sale.ClientName || '—',
+        UnitPrice: Number(line.UnitPrice) || 0,
+        LineTotal: Number(line.LineTotal) || 0,
+        Notes: sale.PaymentStatus === 'Returned' ? 'Sold (later returned)' : '',
+      });
+      if (sale.PaymentStatus === 'Returned') {
+        events.push({
+          EventType: 'return',
+          EventDate: sale.UpdatedAt || sale.SaleDate || sale.CreatedAt,
+          QuantityChange: qty,
+          ReferenceType: 'sale',
+          ReferenceId: sale._id,
+          ReferenceNumber: sale.InvoiceNumber || '—',
+          PartyName: sale.ClientName || '—',
+          UnitPrice: Number(line.UnitPrice) || 0,
+          LineTotal: Number(line.LineTotal) || 0,
+          Notes: 'Invoice returned — stock restored',
+        });
+      }
+    }
+  }
+
+  events.sort((a, b) => new Date(a.EventDate) - new Date(b.EventDate));
+
+  let netChange = events.reduce((s, e) => s + e.QuantityChange, 0);
+  const openingQty = (Number(item.CurrentStock) || 0) - netChange;
+  if (openingQty !== 0) {
+    events.unshift({
+      EventType: 'opening',
+      EventDate: item.CreatedAt || new Date(),
+      QuantityChange: openingQty,
+      ReferenceType: 'manual',
+      ReferenceNumber: '—',
+      PartyName: '—',
+      Notes: openingQty > 0 ? 'Opening / initial stock (reconstructed)' : 'Historical adjustment (reconstructed)',
+    });
+  }
+
+  let balance = 0;
+  const docs = events.map((e) => {
+    balance += e.QuantityChange;
+    return {
+      InventoryItemId: oid(itemId),
+      ItemCode: item.ItemCode,
+      StockName: item.StockName,
+      PlateSize: item.PlateSize || '',
+      Unit: item.Unit || 'Pcs',
+      ...e,
+      BalanceAfter: balance,
+      CreatedAt: new Date(),
+    };
+  });
+
+  const currentStock = Number(item.CurrentStock) || 0;
+  if (docs.length > 0 && balance !== currentStock) {
+    docs.push({
+      InventoryItemId: oid(itemId),
+      ItemCode: item.ItemCode,
+      StockName: item.StockName,
+      PlateSize: item.PlateSize || '',
+      Unit: item.Unit || 'Pcs',
+      EventType: 'adjustment',
+      EventDate: new Date(),
+      QuantityChange: currentStock - balance,
+      BalanceAfter: currentStock,
+      ReferenceType: 'manual',
+      ReferenceNumber: '—',
+      PartyName: '—',
+      Notes: 'Reconciliation after rebuild',
+      CreatedAt: new Date(),
+    });
+  }
+
+  await col('inventory_history').deleteMany({ InventoryItemId: oid(itemId) });
+  if (docs.length) await col('inventory_history').insertMany(docs);
+  return docs;
+}
+
+async function getInventoryHistory(itemId) {
+  const item = await col('inventory_items').findOne({ _id: oid(itemId) });
+  if (!item) throw new Error('Item not found');
+
+  const count = await col('inventory_history').countDocuments({ InventoryItemId: oid(itemId) });
+  if (count === 0) await rebuildInventoryHistory(itemId);
+
+  const events = await col('inventory_history')
+    .find({ InventoryItemId: oid(itemId) })
+    .sort({ EventDate: 1, CreatedAt: 1 })
+    .toArray();
+
+  return {
+    item,
+    events,
+    currentStock: Number(item.CurrentStock) || 0,
+  };
 }
 
 async function updatePurchasePrice(itemId, newPrice) {
@@ -289,13 +575,24 @@ async function createSale(sale) {
   delete sale.InitialPayment; // don't store separately
 
   const result = await col('sales').insertOne(sale);
+  const saved = { ...sale, _id: result.insertedId };
 
-  // Deduct stock
-  for (const item of sale.Items) {
-    if (item.InventoryItemId) await updateStock(item.InventoryItemId, -Number(item.Quantity));
+  for (const item of saved.Items) {
+    if (!item.InventoryItemId) continue;
+    await updateStock(item.InventoryItemId, -Number(item.Quantity), {
+      EventType: 'sale',
+      ReferenceType: 'sale',
+      ReferenceId: saved._id,
+      ReferenceNumber: saved.InvoiceNumber,
+      PartyName: saved.ClientName || '—',
+      UnitPrice: Number(item.UnitPrice) || 0,
+      LineTotal: Number(item.LineTotal) || 0,
+      EventDate: saved.SaleDate,
+      Notes: '',
+    });
   }
 
-  return { ...sale, _id: result.insertedId };
+  return saved;
 }
 
 function deriveStatus(sale) {
@@ -336,7 +633,18 @@ async function markSaleReturned(saleId) {
   if (!sale) throw new Error('Sale not found');
   if (sale.PaymentStatus === 'Returned') return; // already returned
   for (const item of (sale.Items || [])) {
-    if (item.InventoryItemId) await updateStock(item.InventoryItemId, Number(item.Quantity));
+    if (!item.InventoryItemId) continue;
+    await updateStock(item.InventoryItemId, Number(item.Quantity), {
+      EventType: 'return',
+      ReferenceType: 'sale',
+      ReferenceId: sale._id,
+      ReferenceNumber: sale.InvoiceNumber,
+      PartyName: sale.ClientName || '—',
+      UnitPrice: Number(item.UnitPrice) || 0,
+      LineTotal: Number(item.LineTotal) || 0,
+      EventDate: new Date(),
+      Notes: 'Invoice marked as returned',
+    });
   }
   await col('sales').updateOne(
     { _id: oid(saleId) },
@@ -347,9 +655,21 @@ async function markSaleReturned(saleId) {
 async function deleteSale(id) {
   const sale = await col('sales').findOne({ _id: oid(id) });
   if (!sale) return;
-  // Restore stock
-  for (const item of (sale.Items || [])) {
-    if (item.InventoryItemId) await updateStock(item.InventoryItemId, Number(item.Quantity));
+  if (sale.PaymentStatus !== 'Returned') {
+    for (const item of (sale.Items || [])) {
+      if (!item.InventoryItemId) continue;
+      await updateStock(item.InventoryItemId, Number(item.Quantity), {
+        EventType: 'sale_reversal',
+        ReferenceType: 'sale',
+        ReferenceId: sale._id,
+        ReferenceNumber: sale.InvoiceNumber,
+        PartyName: sale.ClientName || '—',
+        UnitPrice: Number(item.UnitPrice) || 0,
+        LineTotal: Number(item.LineTotal) || 0,
+        EventDate: new Date(),
+        Notes: 'Invoice deleted — stock restored',
+      });
+    }
   }
   await col('sales').deleteOne({ _id: oid(id) });
 }
@@ -418,8 +738,146 @@ async function generateInvoiceNumber() {
 
 // ─── PURCHASES ───────────────────────────────────────────────────────────────
 
+const PO_STATUSES = ['Pending', 'Received', 'Not Delivered', 'Out of Stock', 'Cancelled'];
+
+function normalizePurchaseStatus(status) {
+  if (!status) return 'Received'; // legacy POs that already applied stock
+  return PO_STATUSES.includes(status) ? status : 'Pending';
+}
+
+function purchaseAppliesInventory(status) {
+  return normalizePurchaseStatus(status) === 'Received';
+}
+
+function getLineOrderedQty(line) {
+  return Number(line?.Quantity) || 0;
+}
+
+function getLineReceivedQty(line) {
+  if (line?.ReceivedQuantity != null && line.ReceivedQuantity !== '') {
+    return Number(line.ReceivedQuantity) || 0;
+  }
+  return getLineOrderedQty(line);
+}
+
+function enrichPurchaseLine(line) {
+  const orderedQty = getLineOrderedQty(line);
+  const receivedQty = getLineReceivedQty(line);
+  const unitCost = Number(line.UnitCost) || 0;
+  return {
+    ...line,
+    Quantity: orderedQty,
+    ReceivedQuantity: receivedQty,
+    LineTotal: orderedQty * unitCost,
+    ReceivedLineTotal: receivedQty * unitCost,
+  };
+}
+
+function enrichPurchaseItems(items) {
+  return (items || []).map(enrichPurchaseLine);
+}
+
+function computeOrderedTotal(items) {
+  return enrichPurchaseItems(items).reduce((s, i) => s + i.LineTotal, 0);
+}
+
+function computeReceivedTotal(items) {
+  return enrichPurchaseItems(items).reduce((s, i) => s + i.ReceivedLineTotal, 0);
+}
+
+function purchaseHasVariedReceipt(items) {
+  return enrichPurchaseItems(items).some((i) => i.ReceivedQuantity !== i.Quantity);
+}
+
+function applyReceivedQuantities(items, receivedItems) {
+  const lines = enrichPurchaseItems(items);
+  return lines.map((line) => {
+    const match = (receivedItems || []).find((r) => itemIdMatches(r.InventoryItemId, line.InventoryItemId));
+    const receivedQty = match ? Number(match.ReceivedQuantity) : line.Quantity;
+    if (Number.isNaN(receivedQty) || receivedQty < 0) {
+      throw new Error(`Invalid received quantity for ${line.ItemName || 'item'}`);
+    }
+    return enrichPurchaseLine({ ...line, ReceivedQuantity: receivedQty });
+  });
+}
+
+function preparePurchaseTotals(items, status) {
+  const enriched = enrichPurchaseItems(items);
+  const orderedTotal = enriched.reduce((s, i) => s + i.LineTotal, 0);
+  const receivedTotal = enriched.reduce((s, i) => s + i.ReceivedLineTotal, 0);
+  return {
+    Items: enriched,
+    OrderedTotalCost: orderedTotal,
+    TotalCost: purchaseAppliesInventory(status) ? receivedTotal : orderedTotal,
+    ReceiptVaried: purchaseHasVariedReceipt(enriched),
+  };
+}
+
+function receiptNoteForLine(line) {
+  const ordered = getLineOrderedQty(line);
+  const received = getLineReceivedQty(line);
+  if (received === ordered) return '';
+  return `Ordered ${ordered}, received ${received}`;
+}
+
+async function applyPurchaseInventory(purchase, multiplier) {
+  for (const item of enrichPurchaseItems(purchase.Items || [])) {
+    if (!item.InventoryItemId) continue;
+    const qty = multiplier * getLineReceivedQty(item);
+    if (qty === 0) continue;
+    const varianceNote = receiptNoteForLine(item);
+    const baseMeta = {
+      ReferenceType: 'purchase',
+      ReferenceId: purchase._id,
+      ReferenceNumber: purchase.PurchaseNumber || '—',
+      PartyName: purchase.SupplierName || '—',
+      UnitCost: Number(item.UnitCost) || 0,
+      LineTotal: Number(item.ReceivedLineTotal) || 0,
+    };
+    const notes = [purchase.Notes, varianceNote].filter(Boolean).join(' · ');
+    const meta = multiplier > 0
+      ? {
+          ...baseMeta,
+          EventType: 'purchase',
+          EventDate: purchase.PurchaseDate || purchase.CreatedAt,
+          Notes: notes,
+        }
+      : {
+          ...baseMeta,
+          EventType: 'purchase_reversal',
+          EventDate: new Date(),
+          Notes: `PO reversed (${normalizePurchaseStatus(purchase.Status)})${varianceNote ? ` · ${varianceNote}` : ''}`,
+        };
+    await updateStock(item.InventoryItemId, qty, meta);
+    if (multiplier > 0) {
+      await updatePurchasePrice(item.InventoryItemId, Number(item.UnitCost));
+    }
+  }
+}
+
 async function getAllPurchases() {
   return col('purchases').find({}).sort({ PurchaseDate: -1 }).toArray();
+}
+
+async function getPurchaseSummary() {
+  const purchases = await getAllPurchases();
+  let receivedCost = 0;
+  let pendingCost = 0;
+  let pendingCount = 0;
+  let receivedCount = 0;
+  for (const p of purchases) {
+    const status = normalizePurchaseStatus(p.Status);
+    const orderedCost = Number(p.OrderedTotalCost ?? p.TotalCost) || 0;
+    const bookCost = Number(p.TotalCost) || 0;
+    if (status === 'Received') {
+      receivedCost += bookCost;
+      receivedCount++;
+    } else if (status === 'Pending') {
+      pendingCost += orderedCost;
+      pendingCount++;
+    }
+  }
+  return { receivedCost, pendingCost, pendingCount, receivedCount, totalOrders: purchases.length };
 }
 
 async function createPurchase(purchase) {
@@ -427,19 +885,29 @@ async function createPurchase(purchase) {
   purchase.PurchaseDate = purchase.PurchaseDate ? new Date(purchase.PurchaseDate) : new Date();
   purchase.CreatedAt = new Date();
   purchase.UpdatedAt = new Date();
-  purchase.TotalCost = purchase.Items.reduce((s, i) => s + (Number(i.LineTotal) || 0), 0);
+  purchase.Status = normalizePurchaseStatus(purchase.Status || 'Pending');
+  purchase.StatusNotes = String(purchase.StatusNotes || '').trim();
+  purchase.StatusUpdatedAt = new Date();
+
+  let items = purchase.Items || [];
+  if (purchaseAppliesInventory(purchase.Status) && purchase.ReceivedItems) {
+    items = applyReceivedQuantities(items, purchase.ReceivedItems);
+  }
+  const totals = preparePurchaseTotals(items, purchase.Status);
+  purchase.Items = totals.Items;
+  purchase.OrderedTotalCost = totals.OrderedTotalCost;
+  purchase.TotalCost = totals.TotalCost;
+  purchase.ReceiptVaried = totals.ReceiptVaried;
+  delete purchase.ReceivedItems;
 
   const result = await col('purchases').insertOne(purchase);
+  const saved = { ...purchase, _id: result.insertedId };
 
-  // Increment stock and update purchase price
-  for (const item of purchase.Items) {
-    if (item.InventoryItemId) {
-      await updateStock(item.InventoryItemId, Number(item.Quantity));
-      await updatePurchasePrice(item.InventoryItemId, Number(item.UnitCost));
-    }
+  if (purchaseAppliesInventory(saved.Status)) {
+    await applyPurchaseInventory(saved, 1);
   }
 
-  return { ...purchase, _id: result.insertedId };
+  return saved;
 }
 
 async function updatePurchase(purchase) {
@@ -447,32 +915,89 @@ async function updatePurchase(purchase) {
   const existing = await col('purchases').findOne({ _id: oid(_id) });
   if (!existing) throw new Error('Purchase not found');
 
-  // Reverse original stock impact
-  for (const item of (existing.Items || [])) {
-    if (item.InventoryItemId) await updateStock(item.InventoryItemId, -Number(item.Quantity));
+  const oldStatus = normalizePurchaseStatus(existing.Status);
+  const newStatus = normalizePurchaseStatus(data.Status ?? existing.Status);
+
+  if (purchaseAppliesInventory(oldStatus)) {
+    await applyPurchaseInventory(existing, -1);
   }
 
-  // Recompute and save
-  data.TotalCost = (data.Items || []).reduce((s, i) => s + (Number(i.LineTotal) || 0), 0);
+  let items = data.Items || existing.Items || [];
+  if (data.ReceivedItems) {
+    items = applyReceivedQuantities(items, data.ReceivedItems);
+  }
+  const totals = preparePurchaseTotals(items, newStatus);
+  data.Items = totals.Items;
+  data.OrderedTotalCost = totals.OrderedTotalCost;
+  data.TotalCost = totals.TotalCost;
+  data.ReceiptVaried = totals.ReceiptVaried;
+  delete data.ReceivedItems;
+  data.Status = newStatus;
+  data.StatusNotes = data.StatusNotes !== undefined
+    ? String(data.StatusNotes || '').trim()
+    : (existing.StatusNotes || '');
+  data.StatusUpdatedAt = new Date();
   data.UpdatedAt = new Date();
   await col('purchases').updateOne({ _id: oid(_id) }, { $set: data });
 
-  // Apply new stock impact and prices
-  for (const item of (data.Items || [])) {
-    if (item.InventoryItemId) {
-      await updateStock(item.InventoryItemId, Number(item.Quantity));
-      await updatePurchasePrice(item.InventoryItemId, Number(item.UnitCost));
-    }
+  const updated = { ...existing, ...data, _id: existing._id };
+  if (purchaseAppliesInventory(newStatus)) {
+    await applyPurchaseInventory(updated, 1);
   }
 
   return { _id, ...data };
 }
 
+async function updatePurchaseStatus(id, status, statusNotes, receivedItems) {
+  const existing = await col('purchases').findOne({ _id: oid(id) });
+  if (!existing) throw new Error('Purchase not found');
+
+  const oldStatus = normalizePurchaseStatus(existing.Status);
+  const newStatus = normalizePurchaseStatus(status);
+  if (!PO_STATUSES.includes(newStatus)) throw new Error('Invalid purchase status');
+
+  if (purchaseAppliesInventory(oldStatus)) {
+    await applyPurchaseInventory(existing, -1);
+  }
+
+  let items = existing.Items || [];
+  if (purchaseAppliesInventory(newStatus)) {
+    if (receivedItems && receivedItems.length) {
+      items = applyReceivedQuantities(items, receivedItems);
+    } else if (!purchaseAppliesInventory(oldStatus)) {
+      items = applyReceivedQuantities(items, items.map((line) => ({
+        InventoryItemId: line.InventoryItemId,
+        ReceivedQuantity: getLineOrderedQty(line),
+      })));
+    }
+  }
+
+  const totals = preparePurchaseTotals(items, newStatus);
+  const notes = statusNotes !== undefined ? String(statusNotes || '').trim() : (existing.StatusNotes || '');
+  const update = {
+    Status: newStatus,
+    StatusNotes: notes,
+    Items: totals.Items,
+    OrderedTotalCost: totals.OrderedTotalCost,
+    TotalCost: totals.TotalCost,
+    ReceiptVaried: totals.ReceiptVaried,
+    StatusUpdatedAt: new Date(),
+    UpdatedAt: new Date(),
+  };
+  await col('purchases').updateOne({ _id: oid(id) }, { $set: update });
+
+  const updated = { ...existing, ...update };
+  if (purchaseAppliesInventory(newStatus)) {
+    await applyPurchaseInventory(updated, 1);
+  }
+  return updated;
+}
+
 async function deletePurchase(id) {
   const purchase = await col('purchases').findOne({ _id: oid(id) });
   if (!purchase) return;
-  for (const item of (purchase.Items || [])) {
-    if (item.InventoryItemId) await updateStock(item.InventoryItemId, -Number(item.Quantity));
+  if (purchaseAppliesInventory(normalizePurchaseStatus(purchase.Status))) {
+    await applyPurchaseInventory(purchase, -1);
   }
   await col('purchases').deleteOne({ _id: oid(id) });
 }
@@ -530,6 +1055,57 @@ async function generateSupplierCode() {
   return `SUP-${String(num).padStart(4, '0')}`;
 }
 
+// ─── MASTER DATA (categories, sizes, stock names) ────────────────────────────
+
+async function getMasterData(type) {
+  const query = type ? { Type: type } : {};
+  return col('master_data').find(query).sort({ SortOrder: 1, Name: 1 }).toArray();
+}
+
+async function getMasterDataLists() {
+  const all = await getMasterData();
+  const lists = { categories: [], sizes: [], stockNames: [] };
+  for (const row of all) {
+    if (row.Type === 'category') lists.categories.push(row.Name);
+    else if (row.Type === 'size') lists.sizes.push(row.Name);
+    else if (row.Type === 'stock_name') lists.stockNames.push(row.Name);
+  }
+  return lists;
+}
+
+async function createMasterDataEntry({ Type, Name }) {
+  const name = String(Name || '').trim();
+  if (!name) throw new Error('Name is required');
+  if (!['category', 'size', 'stock_name'].includes(Type)) throw new Error('Invalid type');
+  const dup = await col('master_data').findOne({ Type, Name: name });
+  if (dup) throw new Error('This entry already exists');
+  const maxSort = await col('master_data').findOne({ Type }, { sort: { SortOrder: -1 }, projection: { SortOrder: 1 } });
+  const doc = {
+    Type,
+    Name: name,
+    SortOrder: (maxSort?.SortOrder ?? -1) + 1,
+    CreatedAt: new Date(),
+    UpdatedAt: new Date(),
+  };
+  const result = await col('master_data').insertOne(doc);
+  return { ...doc, _id: result.insertedId };
+}
+
+async function updateMasterDataEntry({ _id, Name }) {
+  const name = String(Name || '').trim();
+  if (!name) throw new Error('Name is required');
+  const existing = await col('master_data').findOne({ _id: oid(_id) });
+  if (!existing) throw new Error('Entry not found');
+  const dup = await col('master_data').findOne({ Type: existing.Type, Name: name, _id: { $ne: oid(_id) } });
+  if (dup) throw new Error('This entry already exists');
+  await col('master_data').updateOne({ _id: oid(_id) }, { $set: { Name: name, UpdatedAt: new Date() } });
+  return { ...existing, Name: name };
+}
+
+async function deleteMasterDataEntry(id) {
+  await col('master_data').deleteOne({ _id: oid(id) });
+}
+
 // ─── DASHBOARD ───────────────────────────────────────────────────────────────
 
 async function getDashboardMetrics() {
@@ -581,12 +1157,13 @@ module.exports = {
   disconnect,
   getLastConnectError,
   getConfig, saveConfig,
-  getAllInventory, getLowStock, createItem, updateItem, deleteItem, updateStock,
+  getAllInventory, getLowStock, createItem, updateItem, deleteItem, updateStock, getInventoryHistory, rebuildInventoryHistory,
   getAllClients, createClient, updateClient, deleteClient, getClientLedger, getClientBalance,
   getAllSales, createSale, recordPayment, markSaleReturned, deleteSale,
   getTotalSales, getTotalProfit, getTotalOutstanding, getOverdueSales, getPendingAlerts, markAlertSent,
   getPendingPaymentSales, markOwnerDigestSent,
-  getAllPurchases, createPurchase, updatePurchase, deletePurchase,
+  getAllPurchases, createPurchase, updatePurchase, updatePurchaseStatus, deletePurchase, getPurchaseSummary,
   getAllSuppliers, createSupplier, updateSupplier, deleteSupplier,
+  getMasterData, getMasterDataLists, createMasterDataEntry, updateMasterDataEntry, deleteMasterDataEntry,
   getDashboardMetrics,
 };

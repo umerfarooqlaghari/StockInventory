@@ -121,6 +121,8 @@ handle('inventory:getLowStock', () => db.getLowStock());
 handle('inventory:create', (item) => db.createItem(item));
 handle('inventory:update', (item) => db.updateItem(item));
 handle('inventory:delete', (id) => db.deleteItem(id));
+handle('inventory:getHistory', (itemId) => db.getInventoryHistory(itemId));
+handle('inventory:rebuildHistory', (itemId) => db.rebuildInventoryHistory(itemId));
 handle('inventory:importExcel', async (filePath) => {
   const { items, errors } = await importInventoryFromExcel(filePath);
   let success = 0;
@@ -192,8 +194,10 @@ handle('sales:exportExcel', async () => {
 
 // Purchases
 handle('purchases:getAll', () => db.getAllPurchases());
+handle('purchases:getSummary', () => db.getPurchaseSummary());
 handle('purchases:create', (purchase) => db.createPurchase(purchase));
 handle('purchases:update', (purchase) => db.updatePurchase(purchase));
+handle('purchases:updateStatus', (id, status, statusNotes, receivedItems) => db.updatePurchaseStatus(id, status, statusNotes, receivedItems));
 handle('purchases:delete', (id) => db.deletePurchase(id));
 
 // Suppliers
@@ -201,6 +205,13 @@ handle('suppliers:getAll', (search) => db.getAllSuppliers(search));
 handle('suppliers:create', (s) => db.createSupplier(s));
 handle('suppliers:update', (s) => db.updateSupplier(s));
 handle('suppliers:delete', (id) => db.deleteSupplier(id));
+
+// Master data (categories, sizes, stock names)
+handle('masterData:getAll', (type) => db.getMasterData(type));
+handle('masterData:getLists', () => db.getMasterDataLists());
+handle('masterData:create', (entry) => db.createMasterDataEntry(entry));
+handle('masterData:update', (entry) => db.updateMasterDataEntry(entry));
+handle('masterData:delete', (id) => db.deleteMasterDataEntry(id));
 
 // Config
 handle('config:get', () => db.getConfig());
