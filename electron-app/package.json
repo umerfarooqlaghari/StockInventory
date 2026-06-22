@@ -4,20 +4,25 @@
   "description": "Printing Plates Stock Inventory Management System",
   "main": "electron.cjs",
   "author": "Alpha Devs",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/umerfarooqlaghari/StockInventory.git"
+  },
   "scripts": {
     "dev": "concurrently -k \"vite\" \"wait-on http://localhost:5173 && cross-env NODE_ENV=development electron .\"",
     "build": "vite build",
     "prestart": "vite build",
     "start": "cross-env NODE_ENV=production NODE_NO_WARNINGS=1 electron .",
     "preview": "vite preview",
-    "package:mac": "npm run build && electron-builder --mac",
-    "package:win": "npm run build && electron-builder --win",
-    "package": "npm run build && electron-builder --mac --win"
+    "package:mac": "npm run build && electron-builder --mac -p never",
+    "package:win": "npm run build && electron-builder --win -p never",
+    "package": "npm run build && electron-builder --mac --win -p never"
   },
   "build": {
     "appId": "cloud.alpha-devs.stockinventory",
     "productName": "Stock Inventory Manager",
     "copyright": "Copyright © Alpha Devs",
+    "publish": null,
     "directories": {
       "output": "release",
       "buildResources": "build"
