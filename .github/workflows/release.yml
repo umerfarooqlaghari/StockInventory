@@ -18,6 +18,10 @@ on:
 
 env:
   NODE_VERSION: '20'
+  # Secrets = Settings → Secrets and variables → Actions → Secrets (sensitive)
+  # Variables = same page → Variables tab (non-sensitive). Workflow checks both.
+  AWS_REGION: ${{ secrets.APP_AWS_REGION || vars.APP_AWS_REGION || vars.aws-region || 'us-east-1' }}
+  AWS_S3_BUCKET: ${{ secrets.APP_AWS_S3_BUCKET_NAME || vars.APP_AWS_S3_BUCKET_NAME || vars.aws-s3-bucket-name }}
 
 jobs:
   build-windows:
@@ -41,9 +45,9 @@ jobs:
           MONGO_DB_NAME: ${{ secrets.APP_MONGO_DB_NAME }}
           AWS_ACCESS_KEY_ID: ${{ secrets.APP_AWS_ACCESS_KEY_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.APP_AWS_SECRET_ACCESS_KEY }}
-          AWS_REGION: ${{ secrets.APP_AWS_REGION }}
+          AWS_REGION: ${{ env.AWS_REGION }}
           SES_FROM_EMAIL: ${{ secrets.APP_SES_FROM_EMAIL }}
-          AWS_S3_BUCKET_NAME: ${{ secrets.APP_AWS_S3_BUCKET_NAME }}
+          AWS_S3_BUCKET_NAME: ${{ env.AWS_S3_BUCKET }}
           TWILIO_ACCOUNT_SID: ${{ secrets.APP_TWILIO_ACCOUNT_SID }}
           TWILIO_API_KEY_SID: ${{ secrets.APP_TWILIO_API_KEY_SID }}
           TWILIO_API_KEY_SECRET: ${{ secrets.APP_TWILIO_API_KEY_SECRET }}
@@ -80,14 +84,14 @@ jobs:
         with:
           aws-access-key-id: ${{ secrets.APP_AWS_ACCESS_KEY_ID }}
           aws-secret-access-key: ${{ secrets.APP_AWS_SECRET_ACCESS_KEY }}
-          aws-region: ${{ secrets.APP_AWS_REGION }}
+          aws-region: ${{ env.AWS_REGION }}
 
       - name: Upload to S3 and generate download links
         id: s3
         shell: bash
         run: |
           VERSION=$(node -p "require('./electron-app/package.json').version")
-          BUCKET="${{ secrets.APP_AWS_S3_BUCKET_NAME }}"
+          BUCKET="${{ env.AWS_S3_BUCKET }}"
           PREFIX="releases/stock-inventory/${VERSION}/windows"
           SUMMARY="$GITHUB_STEP_SUMMARY"
 
@@ -144,9 +148,9 @@ jobs:
           MONGO_DB_NAME: ${{ secrets.APP_MONGO_DB_NAME }}
           AWS_ACCESS_KEY_ID: ${{ secrets.APP_AWS_ACCESS_KEY_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.APP_AWS_SECRET_ACCESS_KEY }}
-          AWS_REGION: ${{ secrets.APP_AWS_REGION }}
+          AWS_REGION: ${{ env.AWS_REGION }}
           SES_FROM_EMAIL: ${{ secrets.APP_SES_FROM_EMAIL }}
-          AWS_S3_BUCKET_NAME: ${{ secrets.APP_AWS_S3_BUCKET_NAME }}
+          AWS_S3_BUCKET_NAME: ${{ env.AWS_S3_BUCKET }}
           TWILIO_ACCOUNT_SID: ${{ secrets.APP_TWILIO_ACCOUNT_SID }}
           TWILIO_API_KEY_SID: ${{ secrets.APP_TWILIO_API_KEY_SID }}
           TWILIO_API_KEY_SECRET: ${{ secrets.APP_TWILIO_API_KEY_SECRET }}
@@ -183,13 +187,13 @@ jobs:
         with:
           aws-access-key-id: ${{ secrets.APP_AWS_ACCESS_KEY_ID }}
           aws-secret-access-key: ${{ secrets.APP_AWS_SECRET_ACCESS_KEY }}
-          aws-region: ${{ secrets.APP_AWS_REGION }}
+          aws-region: ${{ env.AWS_REGION }}
 
       - name: Upload to S3 and generate download links
         id: s3
         run: |
           VERSION=$(node -p "require('./electron-app/package.json').version")
-          BUCKET="${{ secrets.APP_AWS_S3_BUCKET_NAME }}"
+          BUCKET="${{ env.AWS_S3_BUCKET }}"
           PREFIX="releases/stock-inventory/${VERSION}/mac"
           SUMMARY="$GITHUB_STEP_SUMMARY"
 
