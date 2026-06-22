@@ -5,6 +5,7 @@ contextBridge.exposeInMainWorld('api', {
   // Dashboard
   getDashboard: () => ipcRenderer.invoke('dashboard:get'),
   runAlerts: () => ipcRenderer.invoke('alerts:runNow'),
+  runOwnerDigest: () => ipcRenderer.invoke('alerts:runOwnerDigestNow'),
 
   // Inventory
   getInventory: (search) => ipcRenderer.invoke('inventory:getAll', search),
@@ -26,7 +27,7 @@ contextBridge.exposeInMainWorld('api', {
   // Sales
   getSales: (search, status) => ipcRenderer.invoke('sales:getAll', search, status),
   createSale: (sale) => ipcRenderer.invoke('sales:create', sale),
-  updatePayment: (saleId, amount) => ipcRenderer.invoke('sales:updatePayment', saleId, amount),
+  recordPayment: (saleId, entry) => ipcRenderer.invoke('sales:recordPayment', saleId, entry),
   markSaleReturned: (saleId) => ipcRenderer.invoke('sales:markReturned', saleId),
   notifySaleNow: (saleId) => ipcRenderer.invoke('sales:notifyNow', saleId),
   generateInvoicePdf: (saleId) => ipcRenderer.invoke('sales:generatePdf', saleId),
@@ -50,6 +51,9 @@ contextBridge.exposeInMainWorld('api', {
   saveConfig: (config) => ipcRenderer.invoke('config:save', config),
   getDefaultEmailTemplate: () => ipcRenderer.invoke('config:defaultEmailTemplate'),
   sendTestEmail: (to) => ipcRenderer.invoke('email:sendTest', to),
+
+  // S3 upload
+  uploadPaymentProof: (filePath, invoiceNumber) => ipcRenderer.invoke('upload:paymentProof', filePath, invoiceNumber),
 
   // File dialog
   openFileDialog: (opts) => ipcRenderer.invoke('dialog:openFile', opts),

@@ -1,0 +1,221 @@
+name: Build & Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      platform:
+        description: 'Platform to build'
+        required: true
+        default: 'all'
+        type: choice
+        options:
+          - all
+          - windows
+          - mac
+  push:
+    tags:
+      - 'v*'
+
+env:
+  NODE_VERSION: '20'
+
+jobs:
+  build-windows:
+    if: github.event_name == 'push' || github.event.inputs.platform == 'all' || github.event.inputs.platform == 'windows'
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: electron-app/package-lock.json
+
+      - name: Create .env for bundled app
+        shell: bash
+        env:
+          MONGO_URI: ${{ secrets.APP_MONGO_URI }}
+          MONGO_DB_NAME: ${{ secrets.APP_MONGO_DB_NAME }}
+          AWS_ACCESS_KEY_ID: ${{ secrets.APP_AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.APP_AWS_SECRET_ACCESS_KEY }}
+          AWS_REGION: ${{ secrets.APP_AWS_REGION }}
+          SES_FROM_EMAIL: ${{ secrets.APP_SES_FROM_EMAIL }}
+          AWS_S3_BUCKET_NAME: ${{ secrets.APP_AWS_S3_BUCKET_NAME }}
+          TWILIO_ACCOUNT_SID: ${{ secrets.APP_TWILIO_ACCOUNT_SID }}
+          TWILIO_API_KEY_SID: ${{ secrets.APP_TWILIO_API_KEY_SID }}
+          TWILIO_API_KEY_SECRET: ${{ secrets.APP_TWILIO_API_KEY_SECRET }}
+          TWILIO_AUTH_TOKEN: ${{ secrets.APP_TWILIO_AUTH_TOKEN }}
+          TWILIO_WHATSAPP_FROM: ${{ secrets.APP_TWILIO_WHATSAPP_FROM }}
+        run: |
+          cat > electron-app/.env <<EOF
+          MONGO_URI=${MONGO_URI}
+          MONGO_DB_NAME=${MONGO_DB_NAME}
+          AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID}
+          AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY}
+          AWS_REGION=${AWS_REGION}
+          SES_FROM_EMAIL=${SES_FROM_EMAIL}
+          AWS_S3_BUCKET_NAME=${AWS_S3_BUCKET_NAME}
+          TWILIO_ACCOUNT_SID=${TWILIO_ACCOUNT_SID}
+          TWILIO_API_KEY_SID=${TWILIO_API_KEY_SID}
+          TWILIO_API_KEY_SECRET=${TWILIO_API_KEY_SECRET}
+          TWILIO_AUTH_TOKEN=${TWILIO_AUTH_TOKEN}
+          TWILIO_WHATSAPP_FROM=${TWILIO_WHATSAPP_FROM:-whatsapp:+14155238886}
+          EOF
+
+      - name: Install dependencies
+        working-directory: electron-app
+        run: npm ci
+
+      - name: Build Windows packages
+        working-directory: electron-app
+        run: npm run package:win
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.APP_AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.APP_AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ secrets.APP_AWS_REGION }}
+
+      - name: Upload to S3 and generate download links
+        id: s3
+        shell: bash
+        run: |
+          VERSION=$(node -p "require('./electron-app/package.json').version")
+          BUCKET="${{ secrets.APP_AWS_S3_BUCKET_NAME }}"
+          PREFIX="releases/stock-inventory/${VERSION}/windows"
+          SUMMARY="$GITHUB_STEP_SUMMARY"
+
+          echo "## Windows Release v${VERSION}" >> "$SUMMARY"
+          echo "" >> "$SUMMARY"
+
+          shopt -s nullglob
+          FILES=(electron-app/release/*.zip electron-app/release/*.exe)
+          if [ ${#FILES[@]} -eq 0 ]; then
+            echo "No release files found in electron-app/release/" >&2
+            ls -la electron-app/release/ >&2 || true
+            exit 1
+          fi
+
+          for FILE in "${FILES[@]}"; do
+            NAME=$(basename "$FILE")
+            KEY="${PREFIX}/${NAME}"
+            aws s3 cp "$FILE" "s3://${BUCKET}/${KEY}" --content-type "application/octet-stream"
+            URL=$(aws s3 presign "s3://${BUCKET}/${KEY}" --expires-in 604800)
+            echo "- **${NAME}** (valid 7 days): ${URL}" >> "$SUMMARY"
+            echo "Uploaded ${NAME} → s3://${BUCKET}/${KEY}"
+          done
+
+          echo "" >> "$SUMMARY"
+          echo "_Links expire in 7 days. Re-run the workflow or use the GitHub Artifacts tab for a fresh copy._" >> "$SUMMARY"
+
+      - name: Upload GitHub artifact (backup)
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-release
+          path: |
+            electron-app/release/*.zip
+            electron-app/release/*.exe
+          retention-days: 30
+          if-no-files-found: error
+
+  build-mac:
+    if: github.event_name == 'push' || github.event.inputs.platform == 'all' || github.event.inputs.platform == 'mac'
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: electron-app/package-lock.json
+
+      - name: Create .env for bundled app
+        env:
+          MONGO_URI: ${{ secrets.APP_MONGO_URI }}
+          MONGO_DB_NAME: ${{ secrets.APP_MONGO_DB_NAME }}
+          AWS_ACCESS_KEY_ID: ${{ secrets.APP_AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.APP_AWS_SECRET_ACCESS_KEY }}
+          AWS_REGION: ${{ secrets.APP_AWS_REGION }}
+          SES_FROM_EMAIL: ${{ secrets.APP_SES_FROM_EMAIL }}
+          AWS_S3_BUCKET_NAME: ${{ secrets.APP_AWS_S3_BUCKET_NAME }}
+          TWILIO_ACCOUNT_SID: ${{ secrets.APP_TWILIO_ACCOUNT_SID }}
+          TWILIO_API_KEY_SID: ${{ secrets.APP_TWILIO_API_KEY_SID }}
+          TWILIO_API_KEY_SECRET: ${{ secrets.APP_TWILIO_API_KEY_SECRET }}
+          TWILIO_AUTH_TOKEN: ${{ secrets.APP_TWILIO_AUTH_TOKEN }}
+          TWILIO_WHATSAPP_FROM: ${{ secrets.APP_TWILIO_WHATSAPP_FROM }}
+        run: |
+          cat > electron-app/.env <<EOF
+          MONGO_URI=${MONGO_URI}
+          MONGO_DB_NAME=${MONGO_DB_NAME}
+          AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID}
+          AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY}
+          AWS_REGION=${AWS_REGION}
+          SES_FROM_EMAIL=${SES_FROM_EMAIL}
+          AWS_S3_BUCKET_NAME=${AWS_S3_BUCKET_NAME}
+          TWILIO_ACCOUNT_SID=${TWILIO_ACCOUNT_SID}
+          TWILIO_API_KEY_SID=${TWILIO_API_KEY_SID}
+          TWILIO_API_KEY_SECRET=${TWILIO_API_KEY_SECRET}
+          TWILIO_AUTH_TOKEN=${TWILIO_AUTH_TOKEN}
+          TWILIO_WHATSAPP_FROM=${TWILIO_WHATSAPP_FROM:-whatsapp:+14155238886}
+          EOF
+
+      - name: Install dependencies
+        working-directory: electron-app
+        run: npm ci
+
+      - name: Build macOS packages
+        working-directory: electron-app
+        run: npm run package:mac
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.APP_AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.APP_AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ secrets.APP_AWS_REGION }}
+
+      - name: Upload to S3 and generate download links
+        id: s3
+        run: |
+          VERSION=$(node -p "require('./electron-app/package.json').version")
+          BUCKET="${{ secrets.APP_AWS_S3_BUCKET_NAME }}"
+          PREFIX="releases/stock-inventory/${VERSION}/mac"
+          SUMMARY="$GITHUB_STEP_SUMMARY"
+
+          echo "## macOS Release v${VERSION}" >> "$SUMMARY"
+          echo "" >> "$SUMMARY"
+
+          shopt -s nullglob
+          FILES=(electron-app/release/*.zip)
+          if [ ${#FILES[@]} -eq 0 ]; then
+            echo "No release files found" >&2
+            ls -la electron-app/release/ >&2 || true
+            exit 1
+          fi
+
+          for FILE in "${FILES[@]}"; do
+            NAME=$(basename "$FILE")
+            KEY="${PREFIX}/${NAME}"
+            aws s3 cp "$FILE" "s3://${BUCKET}/${KEY}" --content-type "application/octet-stream"
+            URL=$(aws s3 presign "s3://${BUCKET}/${KEY}" --expires-in 604800)
+            echo "- **${NAME}** (valid 7 days): ${URL}" >> "$SUMMARY"
+            echo "Uploaded ${NAME} → s3://${BUCKET}/${KEY}"
+          done
+
+          echo "" >> "$SUMMARY"
+          echo "_Links expire in 7 days. Re-run the workflow or use the GitHub Artifacts tab for a fresh copy._" >> "$SUMMARY"
+
+      - name: Upload GitHub artifact (backup)
+        uses: actions/upload-artifact@v4
+        with:
+          name: mac-release
+          path: electron-app/release/*.zip
+          retention-days: 30
+          if-no-files-found: error

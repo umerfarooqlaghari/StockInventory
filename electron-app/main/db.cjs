@@ -1,21 +1,61 @@
 'use strict';
-require('dotenv').config({ path: require('path').join(__dirname, '..', '.env') });
+require('./env.cjs').loadEnv();
 const { MongoClient, ObjectId } = require('mongodb');
 
-const MONGO_URI = process.env.MONGO_URI;
-const DB_NAME   = process.env.MONGO_DB_NAME || 'StockInventoryDB';
+const DB_NAME = process.env.MONGO_DB_NAME || 'StockInventoryDB';
 
 let client = null;
 let db = null;
+let lastConnectError = null;
+
+function getMongoUri() {
+  const uri = process.env.MONGO_URI;
+  if (!uri) {
+    throw new Error('MONGO_URI is missing — add it to electron-app/.env');
+  }
+  return uri;
+}
 
 async function connect() {
   if (db) return db;
-  client = new MongoClient(MONGO_URI, { serverSelectionTimeoutMS: 10000 });
-  await client.connect();
-  db = client.db(DB_NAME);
-  await ensureIndexes();
-  console.log('MongoDB connected');
+  const uri = getMongoUri();
+  try {
+    client = new MongoClient(uri, {
+      serverSelectionTimeoutMS: 15000,
+      connectTimeoutMS: 15000,
+    });
+    await client.connect();
+    db = client.db(DB_NAME);
+    await ensureIndexes();
+    lastConnectError = null;
+    console.log('MongoDB connected');
+    return db;
+  } catch (err) {
+    lastConnectError = err;
+    client = null;
+    db = null;
+    throw err;
+  }
+}
+
+function getLastConnectError() {
+  return lastConnectError;
+}
+
+function requireDb() {
+  if (!db) {
+    const hint = lastConnectError?.message || 'Connection never established';
+    throw new Error(`Database not connected: ${hint}`);
+  }
   return db;
+}
+
+async function disconnect() {
+  if (client) {
+    await client.close();
+    client = null;
+    db = null;
+  }
 }
 
 async function ensureIndexes() {
@@ -27,7 +67,7 @@ async function ensureIndexes() {
   await db.collection('sales').createIndex({ PaymentStatus: 1 });
 }
 
-function col(name) { return db.collection(name); }
+function col(name) { return requireDb().collection(name); }
 function oid(id) { try { return new ObjectId(id); } catch { return id; } }
 
 // ─── CONFIGURATION ───────────────────────────────────────────────────────────
@@ -47,6 +87,11 @@ async function getConfig() {
     EmailSubjectTemplate: 'Payment Reminder - Invoice {InvoiceNumber}',
     EmailBodyTemplate: `Dear {ClientName},\n\nThis is a reminder that Invoice #{InvoiceNumber} dated {SaleDate} for PKR {Amount} is now {Days} days outstanding.\n\nOutstanding Balance: PKR {Balance}\n\nPlease arrange payment at your earliest convenience.\n\nRegards,\n{CompanyName}`,
     PlateSizes: ['12x18', '18x24', '20x30', '25x35', '30x40', '32x45'],
+    OwnerEmails: [],
+    OwnerDailyReminderEnabled: false,
+    OwnerWhatsAppNumbers: [],
+    OwnerWhatsAppReminderEnabled: false,
+    OwnerLastDigestSentAt: null,
     UpdatedAt: new Date(),
   };
   await col('configuration').insertOne(defaults);
@@ -229,6 +274,20 @@ async function createSale(sale) {
   sale.TotalProfit = sale.Items.reduce((s, i) => s + (Number(i.TotalProfit) || 0), 0);
   sale.PaymentStatus = deriveStatus(sale);
 
+  // Build initial payment history entry if upfront payment was made
+  const initPayment = sale.InitialPayment || {};
+  sale.PaymentHistory = sale.PaidAmount > 0
+    ? [{
+        Amount: sale.PaidAmount,
+        PaymentType: initPayment.PaymentType || 'Cash',
+        ReferenceId: initPayment.ReferenceId || '',
+        ProofUrl: initPayment.ProofUrl || '',
+        Notes: initPayment.Notes || '',
+        PaidAt: new Date(),
+      }]
+    : [];
+  delete sale.InitialPayment; // don't store separately
+
   const result = await col('sales').insertOne(sale);
 
   // Deduct stock
@@ -245,15 +304,31 @@ function deriveStatus(sale) {
   return 'Partial';
 }
 
-async function updatePayment(saleId, newPaidAmount) {
+// Records an individual payment installment and appends it to PaymentHistory.
+// paymentEntry: { Amount, PaymentType, ReferenceId, ProofUrl, Notes }
+async function recordPayment(saleId, paymentEntry) {
   const sale = await col('sales').findOne({ _id: oid(saleId) });
   if (!sale) throw new Error('Sale not found');
-  const paid = Number(newPaidAmount);
-  const status = paid <= 0 ? 'Unpaid' : paid >= sale.TotalAmount ? 'Paid' : 'Partial';
+
+  const entry = {
+    Amount:      Number(paymentEntry.Amount) || 0,
+    PaymentType: paymentEntry.PaymentType || 'Cash',
+    ReferenceId: paymentEntry.ReferenceId || '',
+    ProofUrl:    paymentEntry.ProofUrl || '',
+    Notes:       paymentEntry.Notes || '',
+    PaidAt:      new Date(),
+  };
+
+  const history = [...(sale.PaymentHistory || []), entry];
+  const totalPaid = history.reduce((s, p) => s + p.Amount, 0);
+  const balance = sale.TotalAmount - totalPaid;
+  const status = totalPaid <= 0 ? 'Unpaid' : totalPaid >= sale.TotalAmount ? 'Paid' : 'Partial';
+
   await col('sales').updateOne(
     { _id: oid(saleId) },
-    { $set: { PaidAmount: paid, Balance: sale.TotalAmount - paid, PaymentStatus: status, UpdatedAt: new Date() } }
+    { $set: { PaymentHistory: history, PaidAmount: totalPaid, Balance: balance, PaymentStatus: status, UpdatedAt: new Date() } }
   );
+  return { PaidAmount: totalPaid, Balance: balance, PaymentStatus: status };
 }
 
 async function markSaleReturned(saleId) {
@@ -315,6 +390,20 @@ async function markAlertSent(saleId) {
   await col('sales').updateOne(
     { _id: oid(saleId) },
     { $set: { AlertSent: true, AlertSentAt: new Date() } }
+  );
+}
+
+async function getPendingPaymentSales() {
+  return col('sales')
+    .find({ PaymentStatus: { $in: ['Unpaid', 'Partial'] } })
+    .sort({ SaleDate: 1 })
+    .toArray();
+}
+
+async function markOwnerDigestSent() {
+  await col('configuration').updateOne(
+    {},
+    { $set: { OwnerLastDigestSentAt: new Date(), UpdatedAt: new Date() } }
   );
 }
 
@@ -489,11 +578,14 @@ async function getDashboardMetrics() {
 
 module.exports = {
   connect,
+  disconnect,
+  getLastConnectError,
   getConfig, saveConfig,
   getAllInventory, getLowStock, createItem, updateItem, deleteItem, updateStock,
   getAllClients, createClient, updateClient, deleteClient, getClientLedger, getClientBalance,
-  getAllSales, createSale, updatePayment, markSaleReturned, deleteSale,
+  getAllSales, createSale, recordPayment, markSaleReturned, deleteSale,
   getTotalSales, getTotalProfit, getTotalOutstanding, getOverdueSales, getPendingAlerts, markAlertSent,
+  getPendingPaymentSales, markOwnerDigestSent,
   getAllPurchases, createPurchase, updatePurchase, deletePurchase,
   getAllSuppliers, createSupplier, updateSupplier, deleteSupplier,
   getDashboardMetrics,

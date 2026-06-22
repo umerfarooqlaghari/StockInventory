@@ -12,22 +12,30 @@ export default function Settings() {
   const [testEmail, setTestEmail] = useState('');
   const [testEmailSending, setTestEmailSending] = useState(false);
   const [testEmailResult, setTestEmailResult] = useState(null);
+  const [digestSending, setDigestSending] = useState(false);
+  const [digestResult, setDigestResult] = useState(null);
 
   useEffect(() => {
     window.api.getConfig().then((r) => { if (r.ok) setConfig(r.data); });
   }, []);
 
-  async function save() {
-    setSaving(true); setError(''); setSaved(false);
-    // Parse numeric fields before persisting (allows free-typing in fields)
-    const toSave = {
+  async function buildSavePayload() {
+    return {
       ...config,
       CreditDays:       parseInt(config.CreditDays)       || 45,
       AlertDays:        parseInt(config.AlertDays)         || 48,
       TaxRate:          parseFloat(config.TaxRate)         || 0,
       LowStockThreshold: parseInt(config.LowStockThreshold) || 10,
+      OwnerEmails: (config.OwnerEmails || []).map((e) => String(e).trim()).filter(Boolean),
+      OwnerDailyReminderEnabled: !!config.OwnerDailyReminderEnabled,
+      OwnerWhatsAppNumbers: (config.OwnerWhatsAppNumbers || []).map((p) => String(p).trim()).filter(Boolean),
+      OwnerWhatsAppReminderEnabled: !!config.OwnerWhatsAppReminderEnabled,
     };
-    const res = await window.api.saveConfig(toSave);
+  }
+
+  async function save() {
+    setSaving(true); setError(''); setSaved(false);
+    const res = await window.api.saveConfig(await buildSavePayload());
     if (res.ok) { setSaved(true); setTimeout(() => setSaved(false), 3000); }
     else setError(res.error || 'Failed to save');
     setSaving(false);
@@ -67,6 +75,44 @@ export default function Settings() {
     setTestEmailSending(false);
   }
 
+  async function sendOwnerDigestNow() {
+    const hasEmail = (config.OwnerEmails || []).length > 0;
+    const hasPhone = (config.OwnerWhatsAppNumbers || []).length > 0;
+    if (!hasEmail && !hasPhone) {
+      setDigestResult({ type: 'err', text: 'Add at least one email or WhatsApp number first' });
+      return;
+    }
+
+    setDigestSending(true); setDigestResult(null);
+
+    // Send Digest reads from the database — save current form values first
+    const saveRes = await window.api.saveConfig(await buildSavePayload());
+    if (!saveRes.ok) {
+      setDigestResult({ type: 'err', text: saveRes.error || 'Could not save settings before sending' });
+      setDigestSending(false);
+      return;
+    }
+
+    const res = await window.api.runOwnerDigest();
+    if (res.ok && res.data?.sent) {
+      const parts = [];
+      if (res.data.emailSent) parts.push(`${res.data.recipients} email(s)`);
+      if (res.data.whatsappSent) parts.push(`${res.data.whatsappCount} WhatsApp number(s)`);
+      let text = `Digest sent to ${parts.join(' and ')} — ${res.data.invoiceCount} pending invoice(s)`;
+      if (res.data.whatsappErrors?.length) {
+        text += `. WhatsApp errors: ${res.data.whatsappErrors.join('; ')}`;
+      }
+      setDigestResult({ type: res.data.whatsappErrors?.length && !res.data.whatsappSent && !res.data.emailSent ? 'err' : 'ok', text });
+      const cfg = await window.api.getConfig();
+      if (cfg.ok) setConfig(cfg.data);
+    } else if (res.ok && res.data?.skipped) {
+      setDigestResult({ type: 'err', text: res.data.reason || 'Digest was skipped' });
+    } else {
+      setDigestResult({ type: 'err', text: res.error || res.data?.error || 'Failed to send digest' });
+    }
+    setDigestSending(false);
+  }
+
   if (!config) return <div className="loading-center"><div className="spinner" /></div>;
 
   const set = (key, val) => setConfig({ ...config, [key]: val });
@@ -90,6 +136,72 @@ export default function Settings() {
             <div className="form-group"><label className="form-label">Company Name</label><input className="form-input" value={config.CompanyName || ''} onChange={(e) => set('CompanyName', e.target.value)} /></div>
             <div className="form-group"><label className="form-label">Phone Number</label><input className="form-input" value={config.CompanyPhone || ''} onChange={(e) => set('CompanyPhone', e.target.value)} /></div>
             <div className="form-group"><label className="form-label">Address</label><textarea className="form-textarea" value={config.CompanyAddress || ''} onChange={(e) => set('CompanyAddress', e.target.value)} /></div>
+
+            <div style={{ borderTop: '1px solid var(--border)', marginTop: 16, paddingTop: 16 }}>
+              <h4 style={{ fontWeight: 700, fontSize: 13, marginBottom: 4 }}>Internal Payment Reminders</h4>
+              <p style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 12 }}>
+                Daily aggregated summary of all unpaid/partial invoices, sent to your team. The app must be open at 9:00 AM for the scheduled send.
+              </p>
+
+              <div className="form-group">
+                <label className="form-label">Notification Emails</label>
+                <EmailListManager
+                  emails={config.OwnerEmails || []}
+                  onChange={(emails) => set('OwnerEmails', emails)}
+                />
+              </div>
+
+              <label style={{ display: 'flex', alignItems: 'center', gap: 10, cursor: 'pointer', marginBottom: 12 }}>
+                <input
+                  type="checkbox"
+                  checked={!!config.OwnerDailyReminderEnabled}
+                  onChange={(e) => set('OwnerDailyReminderEnabled', e.target.checked)}
+                  style={{ width: 16, height: 16, accentColor: 'var(--blue)' }}
+                />
+                <span style={{ fontSize: 13, fontWeight: 600 }}>Send daily email digest at 9:00 AM</span>
+              </label>
+
+              <div className="form-group" style={{ marginTop: 8 }}>
+                <label className="form-label">WhatsApp Numbers</label>
+                <PhoneListManager
+                  phones={config.OwnerWhatsAppNumbers || []}
+                  onChange={(phones) => set('OwnerWhatsAppNumbers', phones)}
+                />
+                <p style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 6 }}>
+                  Twilio sandbox: each number must text <strong>join &lt;sandbox-code&gt;</strong> to +1 415 523 8886 first.
+                </p>
+              </div>
+
+              <label style={{ display: 'flex', alignItems: 'center', gap: 10, cursor: 'pointer', marginBottom: 12 }}>
+                <input
+                  type="checkbox"
+                  checked={!!config.OwnerWhatsAppReminderEnabled}
+                  onChange={(e) => set('OwnerWhatsAppReminderEnabled', e.target.checked)}
+                  style={{ width: 16, height: 16, accentColor: 'var(--blue)' }}
+                />
+                <span style={{ fontSize: 13, fontWeight: 600 }}>Send daily WhatsApp digest at 9:00 AM</span>
+              </label>
+
+              {config.OwnerLastDigestSentAt && (
+                <p style={{ fontSize: 11, color: 'var(--text-muted)', marginBottom: 10 }}>
+                  Last digest sent: {new Date(config.OwnerLastDigestSentAt).toLocaleString()}
+                </p>
+              )}
+
+              <button
+                className="btn btn-secondary btn-sm"
+                onClick={sendOwnerDigestNow}
+                disabled={digestSending || (!(config.OwnerEmails || []).length && !(config.OwnerWhatsAppNumbers || []).length)}
+              >
+                {digestSending ? 'Sending…' : '✉ Send Digest Now'}
+              </button>
+
+              {digestResult && (
+                <div className={`notice ${digestResult.type === 'ok' ? 'notice-success' : 'notice-error'}`} style={{ marginTop: 10, fontSize: 12 }}>
+                  {digestResult.type === 'ok' ? '✓' : '✗'} {digestResult.text}
+                </div>
+              )}
+            </div>
           </div>
 
           {/* Credit Rules */}
@@ -243,6 +355,85 @@ export default function Settings() {
         </div>
       </div>
     </>
+  );
+}
+
+function PhoneListManager({ phones, onChange }) {
+  const [newPhone, setNewPhone] = useState('');
+  function normalize(raw) {
+    let p = raw.replace(/[\s\-().]/g, '');
+    if (p.startsWith('0')) p = '+92' + p.slice(1);
+    else if (p.startsWith('92') && !p.startsWith('+')) p = '+' + p;
+    else if (!p.startsWith('+')) p = '+92' + p;
+    return p;
+  }
+  function add() {
+    const v = normalize(newPhone.trim());
+    if (!v || phones.includes(v)) return;
+    onChange([...phones, v]);
+    setNewPhone('');
+  }
+  function remove(p) { onChange(phones.filter((x) => x !== p)); }
+  return (
+    <div>
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginBottom: 12 }}>
+        {phones.length === 0 && <span style={{ color: 'var(--text-muted)', fontSize: 13 }}>No numbers added</span>}
+        {phones.map((p) => (
+          <span key={p} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, background: 'var(--bg)', border: '1px solid var(--border)', borderRadius: 6, padding: '4px 10px', fontSize: 13 }}>
+            {p}
+            <button onClick={() => remove(p)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-muted)', fontSize: 14, lineHeight: 1, padding: 0 }}>✕</button>
+          </span>
+        ))}
+      </div>
+      <div style={{ display: 'flex', gap: 8 }}>
+        <input
+          className="form-input"
+          type="tel"
+          placeholder="+923001234567"
+          value={newPhone}
+          onChange={(ev) => setNewPhone(ev.target.value)}
+          onKeyDown={(ev) => ev.key === 'Enter' && add()}
+          style={{ flex: 1 }}
+        />
+        <button className="btn btn-secondary btn-sm" onClick={add}>+ Add</button>
+      </div>
+    </div>
+  );
+}
+
+function EmailListManager({ emails, onChange }) {
+  const [newEmail, setNewEmail] = useState('');
+  function add() {
+    const v = newEmail.trim().toLowerCase();
+    if (!v || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v) || emails.includes(v)) return;
+    onChange([...emails, v]);
+    setNewEmail('');
+  }
+  function remove(e) { onChange(emails.filter((x) => x !== e)); }
+  return (
+    <div>
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginBottom: 12 }}>
+        {emails.length === 0 && <span style={{ color: 'var(--text-muted)', fontSize: 13 }}>No emails added</span>}
+        {emails.map((e) => (
+          <span key={e} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, background: 'var(--bg)', border: '1px solid var(--border)', borderRadius: 6, padding: '4px 10px', fontSize: 13 }}>
+            {e}
+            <button onClick={() => remove(e)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-muted)', fontSize: 14, lineHeight: 1, padding: 0 }}>✕</button>
+          </span>
+        ))}
+      </div>
+      <div style={{ display: 'flex', gap: 8 }}>
+        <input
+          className="form-input"
+          type="email"
+          placeholder="owner@company.com"
+          value={newEmail}
+          onChange={(ev) => setNewEmail(ev.target.value)}
+          onKeyDown={(ev) => ev.key === 'Enter' && add()}
+          style={{ flex: 1 }}
+        />
+        <button className="btn btn-secondary btn-sm" onClick={add}>+ Add</button>
+      </div>
+    </div>
   );
 }
 

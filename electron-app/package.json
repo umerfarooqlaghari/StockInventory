@@ -3,25 +3,77 @@
   "version": "1.0.0",
   "description": "Printing Plates Stock Inventory Management System",
   "main": "electron.cjs",
+  "author": "Alpha Devs",
   "scripts": {
     "dev": "concurrently -k \"vite\" \"wait-on http://localhost:5173 && cross-env NODE_ENV=development electron .\"",
     "build": "vite build",
+    "prestart": "vite build",
     "start": "cross-env NODE_ENV=production NODE_NO_WARNINGS=1 electron .",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "package:mac": "npm run build && electron-builder --mac",
+    "package:win": "npm run build && electron-builder --win",
+    "package": "npm run build && electron-builder --mac --win"
+  },
+  "build": {
+    "appId": "cloud.alpha-devs.stockinventory",
+    "productName": "Stock Inventory Manager",
+    "copyright": "Copyright © Alpha Devs",
+    "directories": {
+      "output": "release",
+      "buildResources": "build"
+    },
+    "files": [
+      "dist/**/*",
+      "electron.cjs",
+      "preload.cjs",
+      "main/**/*",
+      "package.json",
+      "!**/.env",
+      "!**/.env.*"
+    ],
+    "extraResources": [
+      {
+        "from": ".env",
+        "to": ".env"
+      }
+    ],
+    "mac": {
+      "category": "public.app-category.business",
+      "target": [
+        "zip"
+      ],
+      "hardenedRuntime": false,
+      "gatekeeperAssess": false
+    },
+    "win": {
+      "target": [
+        "zip",
+        "nsis"
+      ]
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true
+    }
   },
   "dependencies": {
+    "@aws-sdk/client-s3": "^3.1073.0",
     "@aws-sdk/client-ses": "^3.616.0",
     "dotenv": "^17.4.2",
     "exceljs": "^4.4.0",
     "mongodb": "^6.8.0",
     "node-cron": "^3.0.3",
-    "pdfkit": "^0.15.0"
+    "pdfkit": "^0.15.0",
+    "twilio": "^6.0.2"
   },
   "devDependencies": {
     "@vitejs/plugin-react": "^4.3.1",
     "concurrently": "^8.2.2",
     "cross-env": "^7.0.3",
     "electron": "^31.3.1",
+    "electron-builder": "^25.1.8",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
     "vite": "^5.4.1",

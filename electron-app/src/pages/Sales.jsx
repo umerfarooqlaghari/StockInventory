@@ -13,7 +13,7 @@ export default function Sales() {
   const [statusFilter, setStatusFilter] = useState('All');
   const [detail, setDetail] = useState(null);
   const [showCreate, setShowCreate] = useState(false);
-  const [payModal, setPayModal] = useState(null); // { sale, newAmount }
+  const [payModal, setPayModal] = useState(null); // { sale }
   const [notifyMsg, setNotifyMsg] = useState(null); // { type: 'ok'|'err', text }
 
   const load = useCallback(async (q, st) => {
@@ -36,11 +36,11 @@ export default function Sales() {
     load(search, statusFilter);
   }
 
-  async function savePayment() {
+  async function savePayment(entry) {
     if (!payModal) return;
-    await window.api.updatePayment(payModal.sale._id?.toString(), payModal.newAmount);
-    setPayModal(null);
-    load(search, statusFilter);
+    const res = await window.api.recordPayment(payModal.sale._id?.toString(), entry);
+    if (res.ok) { setPayModal(null); load(search, statusFilter); }
+    else alert(res.error || 'Failed to record payment');
   }
 
   async function exportExcel() { await window.api.exportSalesExcel(); }
@@ -122,7 +122,7 @@ export default function Sales() {
                           <div className="table-actions">
                             <button className="btn btn-secondary btn-sm" onClick={() => setDetail(s)}>View</button>
                             {s.PaymentStatus !== 'Paid' && s.PaymentStatus !== 'Returned' && (
-                              <button className="btn btn-secondary btn-sm" onClick={() => setPayModal({ sale: s, newAmount: s.PaidAmount })}>Pay</button>
+                              <button className="btn btn-secondary btn-sm" onClick={() => setPayModal({ sale: s })}>Pay</button>
                             )}
                             <button className="btn btn-secondary btn-sm" onClick={() => generatePdf(s)}>PDF</button>
                             {s.PaymentStatus !== 'Paid' && s.PaymentStatus !== 'Returned' && (
@@ -211,34 +211,157 @@ export default function Sales() {
             </div>
           </div>
           {detail.Notes && <div className="notice notice-info" style={{ marginTop: 12 }}>Notes: {detail.Notes}</div>}
+
+          {/* Payment History */}
+          {(detail.PaymentHistory || []).length > 0 && (
+            <div style={{ marginTop: 20 }}>
+              <p style={{ fontWeight: 700, fontSize: 13, marginBottom: 8, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '.05em' }}>Payment History</p>
+              <table className="items-table">
+                <thead>
+                  <tr><th>Date</th><th>Type</th><th>Reference</th><th className="text-right">Amount</th><th>Proof</th></tr>
+                </thead>
+                <tbody>
+                  {(detail.PaymentHistory || []).map((p, i) => (
+                    <tr key={i}>
+                      <td className="text-muted">{fmtDate(p.PaidAt)}</td>
+                      <td><span className={`badge ${p.PaymentType === 'Cash' ? 'badge-green' : p.PaymentType === 'Cheque' ? 'badge-blue' : 'badge-purple'}`}>{p.PaymentType}</span></td>
+                      <td className="mono">{p.ReferenceId || '—'}</td>
+                      <td className="text-right fw-bold text-success">{fmt(p.Amount)}</td>
+                      <td>{p.ProofUrl ? <a href={p.ProofUrl} target="_blank" rel="noreferrer" style={{ color: 'var(--blue)', fontSize: 12 }}>View</a> : '—'}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
         </Modal>
       )}
 
       {/* Payment Modal */}
       {payModal && (
-        <Modal title={`Record Payment — ${payModal.sale.InvoiceNumber}`} onClose={() => setPayModal(null)} footer={
-          <><button className="btn btn-secondary" onClick={() => setPayModal(null)}>Cancel</button>
-          <button className="btn btn-primary" onClick={savePayment}>Save Payment</button></>
-        }>
-          <div style={{ marginBottom: 16, padding: '12px 16px', background: 'var(--bg)', borderRadius: 6 }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
-              <span className="text-muted">Total Amount</span><strong>{fmt(payModal.sale.TotalAmount)}</strong>
-            </div>
-            <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-              <span className="text-muted">Outstanding Balance</span><strong className="text-danger">{fmt(payModal.sale.Balance)}</strong>
-            </div>
-          </div>
-          <div className="form-group">
-            <label className="form-label">Total Paid Amount (PKR)</label>
-            <input className="form-input" type="number" min="0" step="0.01" value={payModal.newAmount} onChange={(e) => setPayModal({ ...payModal, newAmount: e.target.value })} />
-            <p style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 4 }}>Enter the cumulative total paid so far</p>
-          </div>
-        </Modal>
+        <RecordPaymentModal
+          sale={payModal.sale}
+          onClose={() => setPayModal(null)}
+          onSaved={savePayment}
+        />
       )}
 
       {/* Create Invoice Modal */}
       {showCreate && <CreateSaleModal onClose={() => setShowCreate(false)} onSaved={() => { setShowCreate(false); load(search, statusFilter); }} />}
     </>
+  );
+}
+
+function RecordPaymentModal({ sale, onClose, onSaved }) {
+  const [amount, setAmount] = useState('');
+  const [payType, setPayType] = useState('Cash');
+  const [payRef, setPayRef] = useState('');
+  const [proofUrl, setProofUrl] = useState('');
+  const [proofUploading, setProofUploading] = useState(false);
+  const [notes, setNotes] = useState('');
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState('');
+
+  const remaining = (sale.Balance || 0);
+
+  async function uploadProof() {
+    const filePath = await window.api.openFileDialog({
+      title: 'Select Payment Proof',
+      properties: ['openFile'],
+      filters: [{ name: 'Images / PDF', extensions: ['png', 'jpg', 'jpeg', 'gif', 'webp', 'pdf'] }],
+    });
+    if (!filePath) return;
+    setProofUploading(true);
+    const res = await window.api.uploadPaymentProof(filePath, sale.InvoiceNumber);
+    setProofUploading(false);
+    if (res.ok) setProofUrl(res.data);
+    else alert('Upload failed: ' + (res.error || 'unknown error'));
+  }
+
+  async function save() {
+    const amt = Number(amount);
+    if (!amt || amt <= 0) { setError('Enter a valid payment amount'); return; }
+    if (amt > remaining + 0.01) { setError(`Amount exceeds outstanding balance of ${fmt(remaining)}`); return; }
+    if ((payType === 'Cheque' || payType === 'Online') && !payRef) {
+      setError(`Enter the ${payType === 'Cheque' ? 'cheque number' : 'transaction ID'}`); return;
+    }
+    setSaving(true);
+    await onSaved({ Amount: amt, PaymentType: payType, ReferenceId: payRef, ProofUrl: proofUrl, Notes: notes });
+    setSaving(false);
+  }
+
+  return (
+    <Modal title={`Record Payment — ${sale.InvoiceNumber}`} onClose={onClose} footer={
+      <><button className="btn btn-secondary" onClick={onClose}>Cancel</button>
+      <button className="btn btn-primary" onClick={save} disabled={saving}>{saving ? 'Saving…' : 'Save Payment'}</button></>
+    }>
+      {error && <div className="notice notice-error" style={{ marginBottom: 12 }}>{error}</div>}
+
+      {/* Summary */}
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginBottom: 16 }}>
+        {[['Total Amount', fmt(sale.TotalAmount)], ['Already Paid', fmt(sale.PaidAmount)], ['Outstanding Balance', fmt(remaining)]].map(([l, v]) => (
+          <div key={l} style={{ background: 'var(--bg)', borderRadius: 6, padding: '10px 14px' }}>
+            <div style={{ fontSize: 11, color: 'var(--text-muted)', fontWeight: 600 }}>{l}</div>
+            <div style={{ fontWeight: 700, marginTop: 2, color: l === 'Outstanding Balance' ? 'var(--red)' : undefined }}>{v}</div>
+          </div>
+        ))}
+      </div>
+
+      {/* Payment history mini-list */}
+      {(sale.PaymentHistory || []).length > 0 && (
+        <div style={{ marginBottom: 16 }}>
+          <p style={{ fontSize: 12, fontWeight: 700, color: 'var(--text-muted)', marginBottom: 6 }}>Previous Payments</p>
+          {(sale.PaymentHistory || []).map((p, i) => (
+            <div key={i} style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, padding: '4px 0', borderBottom: '1px solid var(--border)' }}>
+              <span>{fmtDate(p.PaidAt)} · <strong>{p.PaymentType}</strong>{p.ReferenceId ? ` · ${p.ReferenceId}` : ''}</span>
+              <span className="text-success fw-bold">{fmt(p.Amount)}</span>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* New payment entry */}
+      <div className="form-group">
+        <label className="form-label">Payment Amount (PKR) *</label>
+        <input className="form-input" type="number" min="0.01" step="0.01" placeholder={`max ${fmt(remaining)}`}
+          value={amount} onChange={(e) => setAmount(e.target.value)} autoFocus />
+      </div>
+
+      <div className="form-group">
+        <label className="form-label">Payment Type *</label>
+        <select className="form-select" value={payType} onChange={(e) => { setPayType(e.target.value); setPayRef(''); setProofUrl(''); }}>
+          <option value="Cash">Cash</option>
+          <option value="Cheque">Cheque</option>
+          <option value="Online">Online Transfer</option>
+        </select>
+      </div>
+
+      {(payType === 'Cheque' || payType === 'Online') && (
+        <>
+          <div className="form-group">
+            <label className="form-label">{payType === 'Cheque' ? 'Cheque No.' : 'Transaction ID'} *</label>
+            <input className="form-input" placeholder={payType === 'Cheque' ? 'e.g. CHQ-00123' : 'e.g. TXN-9987654'} value={payRef} onChange={(e) => setPayRef(e.target.value)} />
+          </div>
+          <div className="form-group">
+            <label className="form-label">Proof Screenshot <span style={{ color: 'var(--text-muted)', fontWeight: 400 }}>(optional)</span></label>
+            {proofUrl
+              ? <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <a href={proofUrl} target="_blank" rel="noreferrer" style={{ color: 'var(--blue)', fontSize: 12 }}>View uploaded proof</a>
+                  <button type="button" className="btn btn-sm btn-secondary" onClick={() => setProofUrl('')}>Remove</button>
+                </div>
+              : <button type="button" className="btn btn-sm btn-secondary" onClick={uploadProof} disabled={proofUploading}>
+                  {proofUploading ? 'Uploading…' : '⬆ Upload Proof'}
+                </button>
+            }
+          </div>
+        </>
+      )}
+
+      <div className="form-group">
+        <label className="form-label">Notes <span style={{ color: 'var(--text-muted)', fontWeight: 400 }}>(optional)</span></label>
+        <input className="form-input" placeholder="e.g. bank transfer confirmation" value={notes} onChange={(e) => setNotes(e.target.value)} />
+      </div>
+    </Modal>
   );
 }
 
@@ -275,6 +398,11 @@ function CreateSaleModal({ onClose, onSaved }) {
   const [notes, setNotes] = useState('');
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
+  // Payment details
+  const [payType, setPayType] = useState('Cash');
+  const [payRef, setPayRef] = useState('');
+  const [proofUploading, setProofUploading] = useState(false);
+  const [proofUrl, setProofUrl] = useState('');
 
   useEffect(() => {
     window.api.getClients('').then((r) => { if (r.ok) setClients(r.data); });
@@ -308,10 +436,24 @@ function CreateSaleModal({ onClose, onSaved }) {
 
   const selectedClient = clients.find((c) => c._id === selectedClientId);
 
+  async function uploadProof(invoiceHint) {
+    const filePath = await window.api.openFileDialog({
+      title: 'Select Payment Proof',
+      properties: ['openFile'],
+      filters: [{ name: 'Images / PDF', extensions: ['png', 'jpg', 'jpeg', 'gif', 'webp', 'pdf'] }],
+    });
+    if (!filePath) return;
+    setProofUploading(true);
+    const res = await window.api.uploadPaymentProof(filePath, invoiceHint || 'new');
+    setProofUploading(false);
+    if (res.ok) setProofUrl(res.data);
+    else alert('Upload failed: ' + (res.error || 'unknown error'));
+  }
+
   async function submit() {
     if (!selectedClientId) { setError('Select a client'); return; }
 
-    // If the user filled the item form but forgot to click +Add, auto-include it
+    // Auto-include pending item if user filled the form but didn't click +Add
     let finalItems = [...items];
     if (newItem.inventoryId && selectedInvItem && Number(newItem.qty) > 0) {
       finalItems = [...items, buildLineItem(selectedInvItem, newItem.qty, newItem.price, newItem.discount)];
@@ -333,6 +475,7 @@ function CreateSaleModal({ onClose, onSaved }) {
       TotalAmount: fTotal,
       PaidAmount: Number(paidAmount),
       Notes: notes,
+      InitialPayment: Number(paidAmount) > 0 ? { PaymentType: payType, ReferenceId: payRef, ProofUrl: proofUrl } : null,
     };
     const res = await window.api.createSale(sale);
     if (res.ok) onSaved();
@@ -452,6 +595,42 @@ function CreateSaleModal({ onClose, onSaved }) {
             <input className="form-input" type="number" min="0" step="0.01" value={paidAmount}
               onChange={(e) => setPaidAmount(e.target.value)} />
           </div>
+
+          <div style={{ background: '#EFF6FF', borderRadius: 8, padding: 12, marginBottom: 12, border: '1px solid #BFDBFE' }}>
+            <p style={{ fontWeight: 700, fontSize: 12, marginBottom: 8, color: '#1E40AF' }}>Payment Method</p>
+            {Number(paidAmount) <= 0 && (
+              <p style={{ fontSize: 11, color: '#64748B', marginBottom: 8 }}>Enter an amount paid above to record this payment.</p>
+            )}
+            <div className="form-group" style={{ marginBottom: 8 }}>
+              <label className="form-label">Type</label>
+              <select className="form-select" value={payType} disabled={Number(paidAmount) <= 0} onChange={(e) => { setPayType(e.target.value); setPayRef(''); setProofUrl(''); }}>
+                <option value="Cash">Cash</option>
+                <option value="Cheque">Cheque</option>
+                <option value="Online">Online Transfer</option>
+              </select>
+            </div>
+            {(payType === 'Cheque' || payType === 'Online') && Number(paidAmount) > 0 && (
+              <>
+                <div className="form-group" style={{ marginBottom: 8 }}>
+                  <label className="form-label">{payType === 'Cheque' ? 'Cheque No.' : 'Transaction ID'}</label>
+                  <input className="form-input" placeholder={payType === 'Cheque' ? 'e.g. CHQ-00123' : 'e.g. TXN-9987654'} value={payRef} onChange={(e) => setPayRef(e.target.value)} />
+                </div>
+                <div className="form-group" style={{ marginBottom: 0 }}>
+                  <label className="form-label">Proof Screenshot <span style={{ color: 'var(--text-muted)', fontWeight: 400 }}>(optional)</span></label>
+                  {proofUrl
+                    ? <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                        <a href={proofUrl} target="_blank" rel="noreferrer" style={{ color: 'var(--blue)', fontSize: 12 }}>View uploaded proof</a>
+                        <button type="button" className="btn btn-sm btn-secondary" onClick={() => setProofUrl('')}>Remove</button>
+                      </div>
+                    : <button type="button" className="btn btn-sm btn-secondary" onClick={() => uploadProof('new')} disabled={proofUploading}>
+                        {proofUploading ? 'Uploading…' : '⬆ Upload Proof'}
+                      </button>
+                  }
+                </div>
+              </>
+            )}
+          </div>
+
           <div className="form-group">
             <label className="form-label">Notes</label>
             <textarea className="form-textarea" value={notes} onChange={(e) => setNotes(e.target.value)}

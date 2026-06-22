@@ -1,4 +1,6 @@
 'use strict';
+require('./main/env.cjs').loadEnv();
+
 // Suppress the AWS SDK NodeVersionSupportWarning before it reaches stderr
 const _emitWarning = process.emitWarning.bind(process);
 process.emitWarning = (warning, ...rest) => {
@@ -16,11 +18,24 @@ const db = require('./main/db.cjs');
 const { generateInvoicePdf } = require('./main/pdf.cjs');
 const { importInventoryFromExcel, importClientsFromExcel, exportInventoryToExcel, exportSalesToExcel, generateInventoryTemplate, generateClientsTemplate } = require('./main/excel.cjs');
 
-const { startAlertService, stopAlertService, processAlerts } = require('./main/alerts.cjs');
+const { startAlertService, stopAlertService, processAlerts, processOwnerDailyDigest } = require('./main/alerts.cjs');
 const { sendEmail, DEFAULT_SUBJECT_TEMPLATE, DEFAULT_BODY_TEMPLATE } = require('./main/email.cjs');
 
 const isDev = process.env.NODE_ENV === 'development';
 let win = null;
+let shuttingDown = false;
+
+async function gracefulShutdown() {
+  if (shuttingDown) return;
+  shuttingDown = true;
+  stopAlertService();
+  try {
+    await db.disconnect();
+    console.log('App closed cleanly.');
+  } catch (err) {
+    console.error('Shutdown error:', err.message);
+  }
+}
 
 function createWindow() {
   win = new BrowserWindow({
@@ -53,14 +68,30 @@ app.whenReady().then(async () => {
     startAlertService();
   } catch (err) {
     console.error('DB connection failed:', err.message);
+    dialog.showErrorBox(
+      'Database Connection Failed',
+      `Could not connect to MongoDB Atlas.\n\n${err.message}\n\nCheck:\n• MONGO_URI password in electron-app/.env matches Atlas\n• Atlas → Network Access allows your IP (or 0.0.0.0/0)\n• Cluster is running (not paused)`
+    );
   }
   createWindow();
   app.on('activate', () => { if (BrowserWindow.getAllWindows().length === 0) createWindow(); });
 });
 
+app.on('before-quit', (e) => {
+  if (shuttingDown) return;
+  e.preventDefault();
+  gracefulShutdown().then(() => app.quit());
+});
+
+// Quit fully when the window closes (macOS default keeps the process alive otherwise).
 app.on('window-all-closed', () => {
-  stopAlertService();
-  if (process.platform !== 'darwin') app.quit();
+  app.quit();
+});
+
+['SIGINT', 'SIGTERM'].forEach((signal) => {
+  process.on(signal, () => {
+    gracefulShutdown().then(() => process.exit(0));
+  });
 });
 
 // ─── IPC HANDLERS ────────────────────────────────────────────────────────────
@@ -82,6 +113,7 @@ function handle(channel, fn) {
 // Dashboard
 handle('dashboard:get', () => db.getDashboardMetrics());
 handle('alerts:runNow', () => processAlerts());
+handle('alerts:runOwnerDigestNow', () => processOwnerDailyDigest({ force: true }));
 
 // Inventory
 handle('inventory:getAll', (search) => db.getAllInventory(search));
@@ -124,7 +156,7 @@ handle('clients:importExcel', async (filePath) => {
 // Sales
 handle('sales:getAll', (search, status) => db.getAllSales(search, status));
 handle('sales:create', (sale) => db.createSale(sale));
-handle('sales:updatePayment', (id, amount) => db.updatePayment(id, amount));
+handle('sales:recordPayment', (saleId, entry) => db.recordPayment(saleId, entry));
 handle('sales:markReturned', (id) => db.markSaleReturned(id));
 handle('sales:notifyNow', async (saleId) => {
   const sales = await db.getAllSales();
@@ -202,6 +234,12 @@ handle('template:clients', async () => {
   fs.writeFileSync(p, buf);
   shell.showItemInFolder(p);
   return p;
+});
+
+// S3 upload
+handle('upload:paymentProof', async (localFilePath, invoiceNumber) => {
+  const { uploadPaymentProof } = require('./main/s3.cjs');
+  return uploadPaymentProof(localFilePath, invoiceNumber || 'unknown');
 });
 
 // File dialogs
