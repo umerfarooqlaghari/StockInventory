@@ -27,6 +27,9 @@ jobs:
   build-windows:
     if: github.event_name == 'push' || github.event.inputs.platform == 'all' || github.event.inputs.platform == 'windows'
     runs-on: windows-latest
+    env:
+      AWS_ACCESS_KEY_ID: ${{ secrets.APP_AWS_ACCESS_KEY_ID || secrets.AWS_ACCESS_KEY_ID }}
+      AWS_SECRET_ACCESS_KEY: ${{ secrets.APP_AWS_SECRET_ACCESS_KEY || secrets.AWS_SECRET_ACCESS_KEY }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -43,8 +46,8 @@ jobs:
         env:
           MONGO_URI: ${{ secrets.APP_MONGO_URI }}
           MONGO_DB_NAME: ${{ secrets.APP_MONGO_DB_NAME }}
-          AWS_ACCESS_KEY_ID: ${{ secrets.APP_AWS_ACCESS_KEY_ID }}
-          AWS_SECRET_ACCESS_KEY: ${{ secrets.APP_AWS_SECRET_ACCESS_KEY }}
+          AWS_ACCESS_KEY_ID: ${{ env.AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ env.AWS_SECRET_ACCESS_KEY }}
           AWS_REGION: ${{ env.AWS_REGION }}
           SES_FROM_EMAIL: ${{ secrets.APP_SES_FROM_EMAIL }}
           AWS_S3_BUCKET_NAME: ${{ env.AWS_S3_BUCKET }}
@@ -79,11 +82,20 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: Verify AWS credentials (must be Repository Secrets)
+        shell: bash
+        run: |
+          if [ -z "$AWS_ACCESS_KEY_ID" ] || [ -z "$AWS_SECRET_ACCESS_KEY" ]; then
+            echo "::error::Missing AWS credentials. Add repository SECRETS (not Variables): APP_AWS_ACCESS_KEY_ID and APP_AWS_SECRET_ACCESS_KEY"
+            exit 1
+          fi
+          echo "AWS credentials present."
+
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v4
         with:
-          aws-access-key-id: ${{ secrets.APP_AWS_ACCESS_KEY_ID }}
-          aws-secret-access-key: ${{ secrets.APP_AWS_SECRET_ACCESS_KEY }}
+          aws-access-key-id: ${{ env.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ env.AWS_SECRET_ACCESS_KEY }}
           aws-region: ${{ env.AWS_REGION }}
 
       - name: Upload to S3 and generate download links
@@ -131,6 +143,9 @@ jobs:
   build-mac:
     if: github.event_name == 'push' || github.event.inputs.platform == 'all' || github.event.inputs.platform == 'mac'
     runs-on: macos-latest
+    env:
+      AWS_ACCESS_KEY_ID: ${{ secrets.APP_AWS_ACCESS_KEY_ID || secrets.AWS_ACCESS_KEY_ID }}
+      AWS_SECRET_ACCESS_KEY: ${{ secrets.APP_AWS_SECRET_ACCESS_KEY || secrets.AWS_SECRET_ACCESS_KEY }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -146,8 +161,8 @@ jobs:
         env:
           MONGO_URI: ${{ secrets.APP_MONGO_URI }}
           MONGO_DB_NAME: ${{ secrets.APP_MONGO_DB_NAME }}
-          AWS_ACCESS_KEY_ID: ${{ secrets.APP_AWS_ACCESS_KEY_ID }}
-          AWS_SECRET_ACCESS_KEY: ${{ secrets.APP_AWS_SECRET_ACCESS_KEY }}
+          AWS_ACCESS_KEY_ID: ${{ env.AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ env.AWS_SECRET_ACCESS_KEY }}
           AWS_REGION: ${{ env.AWS_REGION }}
           SES_FROM_EMAIL: ${{ secrets.APP_SES_FROM_EMAIL }}
           AWS_S3_BUCKET_NAME: ${{ env.AWS_S3_BUCKET }}
@@ -182,11 +197,20 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: Verify AWS credentials (must be Repository Secrets)
+        shell: bash
+        run: |
+          if [ -z "$AWS_ACCESS_KEY_ID" ] || [ -z "$AWS_SECRET_ACCESS_KEY" ]; then
+            echo "::error::Missing AWS credentials. Add repository SECRETS (not Variables): APP_AWS_ACCESS_KEY_ID and APP_AWS_SECRET_ACCESS_KEY"
+            exit 1
+          fi
+          echo "AWS credentials present."
+
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v4
         with:
-          aws-access-key-id: ${{ secrets.APP_AWS_ACCESS_KEY_ID }}
-          aws-secret-access-key: ${{ secrets.APP_AWS_SECRET_ACCESS_KEY }}
+          aws-access-key-id: ${{ env.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ env.AWS_SECRET_ACCESS_KEY }}
           aws-region: ${{ env.AWS_REGION }}
 
       - name: Upload to S3 and generate download links
