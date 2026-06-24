@@ -152,6 +152,7 @@ async function getConfig() {
     CompanyName: 'Printing Plates Inventory',
     CompanyPhone: '',
     CompanyAddress: '',
+    CompanyLogo: '',
     TaxRate: 0,
     LowStockThreshold: 10,
     SesFromEmail: 'info@alpha-devs.cloud',
@@ -595,6 +596,82 @@ async function createSale(sale) {
   return saved;
 }
 
+async function updateSale(sale) {
+  const { _id, ...data } = sale;
+  const existing = await col('sales').findOne({ _id: oid(_id) });
+  if (!existing) throw new Error('Sale not found');
+  if (existing.PaymentStatus === 'Returned') throw new Error('Returned invoices cannot be edited');
+
+  const cfg = await getConfig();
+
+  for (const item of (existing.Items || [])) {
+    if (!item.InventoryItemId) continue;
+    await updateStock(item.InventoryItemId, Number(item.Quantity), {
+      EventType: 'sale_reversal',
+      ReferenceType: 'sale',
+      ReferenceId: existing._id,
+      ReferenceNumber: existing.InvoiceNumber,
+      PartyName: existing.ClientName || '—',
+      UnitPrice: Number(item.UnitPrice) || 0,
+      LineTotal: Number(item.LineTotal) || 0,
+      EventDate: existing.SaleDate,
+      Notes: 'Invoice edited — stock restored',
+    });
+  }
+
+  const saleDate = data.SaleDate ? new Date(data.SaleDate) : existing.SaleDate;
+  const dueDate = new Date(saleDate.getTime() + (Number(cfg.CreditDays) || 45) * 24 * 3600 * 1000);
+  const items = data.Items || [];
+  const subtotal = items.reduce((s, i) => s + (Number(i.LineTotal) || 0), 0);
+  const overallDiscount = Number(data.OverallDiscount) || 0;
+  const taxable = subtotal - overallDiscount;
+  const taxAmount = taxable * (Number(cfg.TaxRate) || 0) / 100;
+  const totalAmount = taxable + taxAmount;
+  const paidAmount = Number(existing.PaidAmount) || 0;
+  const balance = totalAmount - paidAmount;
+  const totalProfit = items.reduce((s, i) => s + (Number(i.TotalProfit) || 0), 0) - overallDiscount;
+
+  const updated = {
+    ClientId: data.ClientId,
+    ClientName: data.ClientName,
+    ClientPhone: data.ClientPhone || '',
+    ClientEmail: data.ClientEmail || '',
+    Items: items,
+    Subtotal: subtotal,
+    OverallDiscount: overallDiscount,
+    TaxAmount: taxAmount,
+    TotalAmount: totalAmount,
+    PaidAmount: paidAmount,
+    Balance: balance,
+    TotalProfit: totalProfit,
+    PaymentStatus: deriveStatus({ PaidAmount: paidAmount, TotalAmount: totalAmount }),
+    SaleDate: saleDate,
+    DueDate: dueDate,
+    Notes: data.Notes !== undefined ? data.Notes : (existing.Notes || ''),
+    UpdatedAt: new Date(),
+  };
+
+  await col('sales').updateOne({ _id: oid(_id) }, { $set: updated });
+  const saved = { ...existing, ...updated, _id: existing._id };
+
+  for (const item of saved.Items) {
+    if (!item.InventoryItemId) continue;
+    await updateStock(item.InventoryItemId, -Number(item.Quantity), {
+      EventType: 'sale',
+      ReferenceType: 'sale',
+      ReferenceId: saved._id,
+      ReferenceNumber: saved.InvoiceNumber,
+      PartyName: saved.ClientName || '—',
+      UnitPrice: Number(item.UnitPrice) || 0,
+      LineTotal: Number(item.LineTotal) || 0,
+      EventDate: saved.SaleDate,
+      Notes: 'Invoice edited',
+    });
+  }
+
+  return saved;
+}
+
 function deriveStatus(sale) {
   if (sale.PaidAmount <= 0) return 'Unpaid';
   if (sale.PaidAmount >= sale.TotalAmount) return 'Paid';
@@ -938,6 +1015,7 @@ async function updatePurchase(purchase) {
     : (existing.StatusNotes || '');
   data.StatusUpdatedAt = new Date();
   data.UpdatedAt = new Date();
+  if (data.PurchaseDate) data.PurchaseDate = new Date(data.PurchaseDate);
   await col('purchases').updateOne({ _id: oid(_id) }, { $set: data });
 
   const updated = { ...existing, ...data, _id: existing._id };
@@ -1159,7 +1237,7 @@ module.exports = {
   getConfig, saveConfig,
   getAllInventory, getLowStock, createItem, updateItem, deleteItem, updateStock, getInventoryHistory, rebuildInventoryHistory,
   getAllClients, createClient, updateClient, deleteClient, getClientLedger, getClientBalance,
-  getAllSales, createSale, recordPayment, markSaleReturned, deleteSale,
+  getAllSales, createSale, updateSale, recordPayment, markSaleReturned, deleteSale,
   getTotalSales, getTotalProfit, getTotalOutstanding, getOverdueSales, getPendingAlerts, markAlertSent,
   getPendingPaymentSales, markOwnerDigestSent,
   getAllPurchases, createPurchase, updatePurchase, updatePurchaseStatus, deletePurchase, getPurchaseSummary,

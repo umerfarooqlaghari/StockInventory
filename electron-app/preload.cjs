@@ -29,6 +29,7 @@ contextBridge.exposeInMainWorld('api', {
   // Sales
   getSales: (search, status) => ipcRenderer.invoke('sales:getAll', search, status),
   createSale: (sale) => ipcRenderer.invoke('sales:create', sale),
+  updateSale: (sale) => ipcRenderer.invoke('sales:update', sale),
   recordPayment: (saleId, entry) => ipcRenderer.invoke('sales:recordPayment', saleId, entry),
   markSaleReturned: (saleId) => ipcRenderer.invoke('sales:markReturned', saleId),
   notifySaleNow: (saleId) => ipcRenderer.invoke('sales:notifyNow', saleId),
@@ -60,6 +61,9 @@ contextBridge.exposeInMainWorld('api', {
   // Config
   getConfig: () => ipcRenderer.invoke('config:get'),
   saveConfig: (config) => ipcRenderer.invoke('config:save', config),
+  getLogoSrc: () => ipcRenderer.invoke('config:getLogoSrc'),
+  uploadCompanyLogo: (filePath) => ipcRenderer.invoke('config:uploadLogo', filePath),
+  resetCompanyLogo: () => ipcRenderer.invoke('config:resetLogo'),
   getDefaultEmailTemplate: () => ipcRenderer.invoke('config:defaultEmailTemplate'),
   sendTestEmail: (to) => ipcRenderer.invoke('email:sendTest', to),
 

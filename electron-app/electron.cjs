@@ -25,6 +25,30 @@ const isDev = process.env.NODE_ENV === 'development';
 let win = null;
 let shuttingDown = false;
 
+function getDefaultLogoPath() {
+  const candidates = [
+    path.join(__dirname, 'public', 'logo.png'),
+    path.join(__dirname, 'dist', 'logo.png'),
+    path.join(__dirname, 'public', 'logo.jpeg'),
+    path.join(__dirname, 'dist', 'logo.jpeg'),
+    path.join(__dirname, 'public', 'logo.jpg'),
+    path.join(__dirname, 'dist', 'logo.jpg'),
+    path.join(__dirname, 'public', 'logo.webp'),
+    path.join(__dirname, 'dist', 'logo.webp'),
+    path.join(__dirname, 'public', 'Artboard 1@2x.png'),
+    path.join(__dirname, 'dist', 'Artboard 1@2x.png')
+  ];
+  for (const candidate of candidates) {
+    if (fs.existsSync(candidate)) return candidate;
+  }
+  return null;
+}
+
+function resolveLogoPath(config) {
+  if (config?.CompanyLogo && fs.existsSync(config.CompanyLogo)) return config.CompanyLogo;
+  return getDefaultLogoPath();
+}
+
 async function gracefulShutdown() {
   if (shuttingDown) return;
   shuttingDown = true;
@@ -158,6 +182,7 @@ handle('clients:importExcel', async (filePath) => {
 // Sales
 handle('sales:getAll', (search, status) => db.getAllSales(search, status));
 handle('sales:create', (sale) => db.createSale(sale));
+handle('sales:update', (sale) => db.updateSale(sale));
 handle('sales:recordPayment', (saleId, entry) => db.recordPayment(saleId, entry));
 handle('sales:markReturned', (id) => db.markSaleReturned(id));
 handle('sales:notifyNow', async (saleId) => {
@@ -175,13 +200,17 @@ handle('sales:generatePdf', async (saleId) => {
   const sale = sales.find((s) => s._id.toString() === saleId);
   if (!sale) throw new Error('Sale not found');
   const config = await db.getConfig();
-  const pdfBuf = await generateInvoicePdf(sale, config);
-  const invoicesDir = path.join(os.homedir(), 'Documents', 'StockInventory', 'Invoices');
-  fs.mkdirSync(invoicesDir, { recursive: true });
-  const filePath = path.join(invoicesDir, `${sale.InvoiceNumber}.pdf`);
-  fs.writeFileSync(filePath, pdfBuf);
-  shell.openPath(filePath);
-  return filePath;
+  const logoPath = resolveLogoPath(config);
+  const pdfBuf = await generateInvoicePdf(sale, config, logoPath);
+  const defaultName = `${sale.InvoiceNumber || 'invoice'}.pdf`;
+  const saveResult = await dialog.showSaveDialog(win, {
+    title: 'Save Invoice PDF',
+    defaultPath: path.join(os.homedir(), 'Downloads', defaultName),
+    filters: [{ name: 'PDF', extensions: ['pdf'] }],
+  });
+  if (saveResult.canceled || !saveResult.filePath) return { canceled: true };
+  fs.writeFileSync(saveResult.filePath, pdfBuf);
+  return { saved: true, filePath: saveResult.filePath };
 });
 handle('sales:exportExcel', async () => {
   const sales = await db.getAllSales();
@@ -216,6 +245,33 @@ handle('masterData:delete', (id) => db.deleteMasterDataEntry(id));
 // Config
 handle('config:get', () => db.getConfig());
 handle('config:save', (config) => db.saveConfig(config));
+handle('config:getLogoSrc', async () => {
+  const config = await db.getConfig();
+  const logoPath = resolveLogoPath(config);
+  if (!logoPath) return null;
+  const data = fs.readFileSync(logoPath);
+  const ext = path.extname(logoPath).slice(1).toLowerCase();
+  const mime = { png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', webp: 'image/webp', gif: 'image/gif' }[ext] || 'image/png';
+  return `data:${mime};base64,${data.toString('base64')}`;
+});
+handle('config:uploadLogo', async (sourcePath) => {
+  if (!sourcePath || !fs.existsSync(sourcePath)) throw new Error('Logo file not found');
+  const ext = path.extname(sourcePath).toLowerCase() || '.png';
+  const allowed = ['.png', '.jpg', '.jpeg', '.webp', '.gif'];
+  if (!allowed.includes(ext)) throw new Error('Logo must be PNG, JPG, WEBP, or GIF');
+  const destDir = path.join(app.getPath('userData'), 'assets');
+  fs.mkdirSync(destDir, { recursive: true });
+  const dest = path.join(destDir, `company-logo${ext}`);
+  fs.copyFileSync(sourcePath, dest);
+  const config = await db.getConfig();
+  await db.saveConfig({ ...config, CompanyLogo: dest });
+  return dest;
+});
+handle('config:resetLogo', async () => {
+  const config = await db.getConfig();
+  await db.saveConfig({ ...config, CompanyLogo: '' });
+  return true;
+});
 handle('config:defaultEmailTemplate', () => ({
   subject: DEFAULT_SUBJECT_TEMPLATE,
   body: DEFAULT_BODY_TEMPLATE,

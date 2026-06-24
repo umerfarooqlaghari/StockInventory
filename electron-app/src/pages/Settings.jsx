@@ -14,9 +14,12 @@ export default function Settings() {
   const [testEmailResult, setTestEmailResult] = useState(null);
   const [digestSending, setDigestSending] = useState(false);
   const [digestResult, setDigestResult] = useState(null);
+  const [logoSrc, setLogoSrc] = useState(null);
+  const [logoUploading, setLogoUploading] = useState(false);
 
   useEffect(() => {
     window.api.getConfig().then((r) => { if (r.ok) setConfig(r.data); });
+    window.api.getLogoSrc().then((res) => { if (res && res.ok && res.data) setLogoSrc(res.data); });
   }, []);
 
   async function buildSavePayload() {
@@ -73,6 +76,32 @@ export default function Settings() {
     const res = await window.api.sendTestEmail(testEmail.trim());
     setTestEmailResult(res.ok && res.data?.sent ? 'success' : 'error');
     setTestEmailSending(false);
+  }
+
+  async function uploadLogo() {
+    const fp = await window.api.openFileDialog({
+      title: 'Select Company Logo',
+      properties: ['openFile'],
+      filters: [{ name: 'Images', extensions: ['png', 'jpg', 'jpeg', 'webp', 'gif'] }],
+    });
+    if (!fp) return;
+    setLogoUploading(true);
+    const res = await window.api.uploadCompanyLogo(fp);
+    setLogoUploading(false);
+    if (res.ok) {
+      const res2 = await window.api.getLogoSrc();
+      if (res2 && res2.ok && res2.data) setLogoSrc(res2.data);
+    } else {
+      setError(res.error || 'Failed to upload logo');
+    }
+  }
+
+  async function resetLogo() {
+    const res = await window.api.resetCompanyLogo();
+    if (res.ok) {
+      const res2 = await window.api.getLogoSrc();
+      setLogoSrc((res2 && res2.ok && res2.data) ? res2.data : null);
+    }
   }
 
   async function sendOwnerDigestNow() {
@@ -133,6 +162,25 @@ export default function Settings() {
           {/* Company */}
           <div className="card card-body">
             <h3 style={{ fontWeight: 700, fontSize: 14, marginBottom: 16 }}>Company Information</h3>
+            <div className="form-group">
+              <label className="form-label">Company Logo</label>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 14, marginBottom: 8 }}>
+                {logoSrc ? (
+                  <img src={logoSrc} alt="Company logo" style={{ width: 72, height: 72, objectFit: 'contain', borderRadius: 8, border: '1px solid var(--border)', background: 'var(--bg)', padding: 6 }} />
+                ) : (
+                  <div style={{ width: 72, height: 72, borderRadius: 8, border: '1px dashed var(--border)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--text-muted)', fontSize: 11 }}>No logo</div>
+                )}
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                  <button type="button" className="btn btn-secondary btn-sm" onClick={uploadLogo} disabled={logoUploading}>
+                    {logoUploading ? 'Uploading…' : 'Upload Logo'}
+                  </button>
+                  {config.CompanyLogo && (
+                    <button type="button" className="btn btn-secondary btn-sm" onClick={resetLogo}>Use Default Logo</button>
+                  )}
+                </div>
+              </div>
+              <p style={{ fontSize: 11, color: 'var(--text-muted)' }}>Shown in the sidebar and on invoice PDFs. Default: Artboard from public folder.</p>
+            </div>
             <div className="form-group"><label className="form-label">Company Name</label><input className="form-input" value={config.CompanyName || ''} onChange={(e) => set('CompanyName', e.target.value)} /></div>
             <div className="form-group"><label className="form-label">Phone Number</label><input className="form-input" value={config.CompanyPhone || ''} onChange={(e) => set('CompanyPhone', e.target.value)} /></div>
             <div className="form-group"><label className="form-label">Address</label><textarea className="form-textarea" value={config.CompanyAddress || ''} onChange={(e) => set('CompanyAddress', e.target.value)} /></div>

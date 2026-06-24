@@ -4,6 +4,10 @@ import StatusBadge from '../components/StatusBadge.jsx';
 
 const fmt = (n) => `PKR ${Number(n || 0).toLocaleString('en-PK', { minimumFractionDigits: 2 })}`;
 const fmtDate = (d) => d ? new Date(d).toLocaleDateString() : '—';
+const toDateInputValue = (d) => {
+  const dt = d ? new Date(d) : new Date();
+  return `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, '0')}-${String(dt.getDate()).padStart(2, '0')}`;
+};
 const STATUSES = ['All', 'Unpaid', 'Partial', 'Paid', 'Returned'];
 
 export default function Sales() {
@@ -13,6 +17,7 @@ export default function Sales() {
   const [statusFilter, setStatusFilter] = useState('All');
   const [detail, setDetail] = useState(null);
   const [showCreate, setShowCreate] = useState(false);
+  const [editingSale, setEditingSale] = useState(null);
   const [payModal, setPayModal] = useState(null); // { sale }
   const [notifyMsg, setNotifyMsg] = useState(null); // { type: 'ok'|'err', text }
 
@@ -26,8 +31,16 @@ export default function Sales() {
   useEffect(() => { load('', 'All'); }, [load]);
   useEffect(() => { const t = setTimeout(() => load(search, statusFilter), 350); return () => clearTimeout(t); }, [search, statusFilter, load]);
 
-  async function generatePdf(sale) {
-    await window.api.generateInvoicePdf(sale._id?.toString());
+  async function downloadPdf(sale) {
+    const res = await window.api.generateInvoicePdf(sale._id?.toString());
+    if (res.ok && res.data?.saved) {
+      setNotifyMsg({ type: 'ok', text: `PDF saved to ${res.data.filePath}` });
+    } else if (res.ok && res.data?.canceled) {
+      return;
+    } else {
+      setNotifyMsg({ type: 'err', text: res.error || 'Failed to save PDF' });
+    }
+    setTimeout(() => setNotifyMsg(null), 4000);
   }
 
   async function removeSale(sale) {
@@ -124,7 +137,10 @@ export default function Sales() {
                             {s.PaymentStatus !== 'Paid' && s.PaymentStatus !== 'Returned' && (
                               <button className="btn btn-secondary btn-sm" onClick={() => setPayModal({ sale: s })}>Pay</button>
                             )}
-                            <button className="btn btn-secondary btn-sm" onClick={() => generatePdf(s)}>PDF</button>
+                            <button className="btn btn-secondary btn-sm" onClick={() => downloadPdf(s)}>Download PDF</button>
+                            {s.PaymentStatus !== 'Returned' && (
+                              <button className="btn btn-secondary btn-sm" onClick={() => setEditingSale(s)}>Edit</button>
+                            )}
                             {s.PaymentStatus !== 'Paid' && s.PaymentStatus !== 'Returned' && (
                               <button
                                 className="btn btn-sm"
@@ -152,7 +168,10 @@ export default function Sales() {
       {detail && (
         <Modal title={`Invoice ${detail.InvoiceNumber}`} onClose={() => setDetail(null)} wide footer={
           <>
-            <button className="btn btn-secondary btn-sm" onClick={() => generatePdf(detail)}>PDF</button>
+            <button className="btn btn-secondary btn-sm" onClick={() => downloadPdf(detail)}>Download PDF</button>
+            {detail.PaymentStatus !== 'Returned' && (
+              <button className="btn btn-secondary btn-sm" onClick={() => { setEditingSale(detail); setDetail(null); }}>Edit Invoice</button>
+            )}
             {detail.PaymentStatus !== 'Paid' && detail.PaymentStatus !== 'Returned' && (
               <button
                 className="btn btn-sm"
@@ -248,6 +267,13 @@ export default function Sales() {
 
       {/* Create Invoice Modal */}
       {showCreate && <CreateSaleModal onClose={() => setShowCreate(false)} onSaved={() => { setShowCreate(false); load(search, statusFilter); }} />}
+      {editingSale && (
+        <EditSaleModal
+          sale={editingSale}
+          onClose={() => setEditingSale(null)}
+          onSaved={() => { setEditingSale(null); load(search, statusFilter); }}
+        />
+      )}
     </>
   );
 }
@@ -396,6 +422,7 @@ function CreateSaleModal({ onClose, onSaved }) {
   const [overallDiscount, setOverallDiscount] = useState(0);
   const [paidAmount, setPaidAmount] = useState(0);
   const [notes, setNotes] = useState('');
+  const [saleDate, setSaleDate] = useState(toDateInputValue());
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
   // Payment details
@@ -475,6 +502,7 @@ function CreateSaleModal({ onClose, onSaved }) {
       TotalAmount: fTotal,
       PaidAmount: Number(paidAmount),
       Notes: notes,
+      SaleDate: saleDate,
       InitialPayment: Number(paidAmount) > 0 ? { PaymentType: payType, ReferenceId: payRef, ProofUrl: proofUrl } : null,
     };
     const res = await window.api.createSale(sale);
@@ -490,12 +518,18 @@ function CreateSaleModal({ onClose, onSaved }) {
       {error && <div className="notice notice-error" style={{ marginBottom: 12 }}>{error}</div>}
 
       {/* Client */}
-      <div className="form-group">
-        <label className="form-label">Client *</label>
-        <select className="form-select" value={selectedClientId} onChange={(e) => setSelectedClientId(e.target.value)}>
-          <option value="">— Select client —</option>
-          {clients.map((c) => <option key={c._id} value={c._id}>{c.ClientCode} — {c.Name}</option>)}
-        </select>
+      <div className="form-row form-row-2">
+        <div className="form-group">
+          <label className="form-label">Client *</label>
+          <select className="form-select" value={selectedClientId} onChange={(e) => setSelectedClientId(e.target.value)}>
+            <option value="">— Select client —</option>
+            {clients.map((c) => <option key={c._id} value={c._id}>{c.ClientCode} — {c.Name}</option>)}
+          </select>
+        </div>
+        <div className="form-group">
+          <label className="form-label">Invoice Date *</label>
+          <input className="form-input" type="date" value={saleDate} onChange={(e) => setSaleDate(e.target.value)} />
+        </div>
       </div>
 
       {/* Add-item row */}
@@ -663,6 +697,171 @@ function CreateSaleModal({ onClose, onSaved }) {
               * Includes 1 pending item. Click <strong>+ Add</strong> to lock it in, or it will be auto-included on Create Invoice.
             </p>
           )}
+        </div>
+      </div>
+    </Modal>
+  );
+}
+
+function EditSaleModal({ sale, onClose, onSaved }) {
+  const [clients, setClients] = useState([]);
+  const [inventory, setInventory] = useState([]);
+  const [selectedClientId, setSelectedClientId] = useState(sale.ClientId?.toString() || '');
+  const [items, setItems] = useState(sale.Items ? sale.Items.map((i) => ({ ...i })) : []);
+  const [newItem, setNewItem] = useState({ inventoryId: '', qty: 1, price: '', discount: 0 });
+  const [overallDiscount, setOverallDiscount] = useState(sale.OverallDiscount || 0);
+  const [notes, setNotes] = useState(sale.Notes || '');
+  const [saleDate, setSaleDate] = useState(toDateInputValue(sale.SaleDate));
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState('');
+
+  useEffect(() => {
+    window.api.getClients('').then((r) => { if (r.ok) setClients(r.data); });
+    window.api.getInventory('').then((r) => { if (r.ok) setInventory(r.data); });
+  }, []);
+
+  const selectedInvItem = inventory.find((i) => i._id?.toString() === newItem.inventoryId);
+  const pendingLine = selectedInvItem && Number(newItem.qty) > 0
+    ? buildLineItem(selectedInvItem, newItem.qty, newItem.price, newItem.discount)
+    : null;
+
+  function addItem() {
+    if (!newItem.inventoryId) { setError('Select an item from the dropdown'); return; }
+    if (!newItem.qty || Number(newItem.qty) <= 0) { setError('Enter a valid quantity'); return; }
+    if (!selectedInvItem) { setError('Item not found — please re-select'); return; }
+    setItems((prev) => [...prev, buildLineItem(selectedInvItem, newItem.qty, newItem.price, newItem.discount)]);
+    setNewItem({ inventoryId: '', qty: 1, price: '', discount: 0 });
+    setError('');
+  }
+
+  function removeItem(idx) { setItems((prev) => prev.filter((_, i) => i !== idx)); }
+
+  const allLines = pendingLine ? [...items, pendingLine] : items;
+  const subtotal = allLines.reduce((s, i) => s + i.LineTotal, 0);
+  const totalAmt = subtotal - Number(overallDiscount);
+  const balance = totalAmt - Number(sale.PaidAmount || 0);
+  const selectedClient = clients.find((c) => c._id?.toString() === selectedClientId);
+
+  async function submit() {
+    if (!selectedClientId) { setError('Select a client'); return; }
+
+    let finalItems = [...items];
+    if (newItem.inventoryId && selectedInvItem && Number(newItem.qty) > 0) {
+      finalItems = [...items, buildLineItem(selectedInvItem, newItem.qty, newItem.price, newItem.discount)];
+    }
+    if (finalItems.length === 0) { setError('Add at least one item to the invoice'); return; }
+
+    setSaving(true); setError('');
+    const res = await window.api.updateSale({
+      _id: sale._id?.toString(),
+      ClientId: selectedClientId,
+      ClientName: selectedClient?.Name || sale.ClientName,
+      ClientPhone: selectedClient?.Phone || sale.ClientPhone || '',
+      ClientEmail: selectedClient?.Email || sale.ClientEmail || '',
+      Items: finalItems,
+      OverallDiscount: Number(overallDiscount),
+      Notes: notes,
+      SaleDate: saleDate,
+    });
+    if (res.ok) onSaved();
+    else { setError(res.error || 'Failed to update invoice'); setSaving(false); }
+  }
+
+  return (
+    <Modal title={`Edit Invoice ${sale.InvoiceNumber}`} onClose={onClose} wide footer={
+      <><button className="btn btn-secondary" onClick={onClose}>Cancel</button>
+      <button className="btn btn-primary" onClick={submit} disabled={saving}>{saving ? 'Saving…' : 'Save Changes'}</button></>
+    }>
+      {error && <div className="notice notice-error" style={{ marginBottom: 12 }}>{error}</div>}
+
+      <div className="notice notice-info" style={{ marginBottom: 14, fontSize: 12 }}>
+        Payments are managed separately via the Pay button. Editing line items will adjust stock accordingly.
+      </div>
+
+      <div className="form-row form-row-2">
+        <div className="form-group">
+          <label className="form-label">Client *</label>
+          <select className="form-select" value={selectedClientId} onChange={(e) => setSelectedClientId(e.target.value)}>
+            <option value="">— Select client —</option>
+            {clients.map((c) => <option key={c._id} value={c._id?.toString()}>{c.ClientCode} — {c.Name}</option>)}
+          </select>
+        </div>
+        <div className="form-group">
+          <label className="form-label">Invoice Date *</label>
+          <input className="form-input" type="date" value={saleDate} onChange={(e) => setSaleDate(e.target.value)} />
+        </div>
+      </div>
+
+      <div style={{ background: 'var(--bg)', borderRadius: 8, padding: 16, marginBottom: 12 }}>
+        <p style={{ fontWeight: 700, fontSize: 13, marginBottom: 10 }}>Add Line Item</p>
+        <div style={{ display: 'grid', gridTemplateColumns: '2fr 80px 120px 110px auto', gap: 8, alignItems: 'end' }}>
+          <div>
+            <label className="form-label">Item</label>
+            <select className="form-select" value={newItem.inventoryId} onChange={(e) => {
+              const inv = inventory.find((i) => i._id?.toString() === e.target.value);
+              setNewItem({ ...newItem, inventoryId: e.target.value, price: inv?.SalePrice ?? '' });
+            }}>
+              <option value="">— Select item —</option>
+              {inventory.map((i) => (
+                <option key={i._id} value={i._id?.toString()}>{i.ItemCode} — {i.StockName}{i.PlateSize ? ` (${i.PlateSize})` : ''}</option>
+              ))}
+            </select>
+          </div>
+          <div>
+            <label className="form-label">Qty</label>
+            <input className="form-input" type="number" min="1" value={newItem.qty} onChange={(e) => setNewItem({ ...newItem, qty: e.target.value })} />
+          </div>
+          <div>
+            <label className="form-label">Unit Price</label>
+            <input className="form-input" type="number" min="0" step="0.01" value={newItem.price} onChange={(e) => setNewItem({ ...newItem, price: e.target.value })} />
+          </div>
+          <div>
+            <label className="form-label">Disc.</label>
+            <input className="form-input" type="number" min="0" step="0.01" value={newItem.discount} onChange={(e) => setNewItem({ ...newItem, discount: e.target.value })} />
+          </div>
+          <button className="btn btn-primary" onClick={addItem}>+ Add</button>
+        </div>
+      </div>
+
+      <div className="card" style={{ marginBottom: 16 }}>
+        <table className="items-table">
+          <thead>
+            <tr><th>Item</th><th>Size</th><th className="text-right">Qty</th><th className="text-right">Price</th><th className="text-right">Discount</th><th className="text-right">Total</th><th></th></tr>
+          </thead>
+          <tbody>
+            {items.map((item, i) => (
+              <tr key={i}>
+                <td>{item.ItemName}</td>
+                <td>{item.PlateSize || '—'}</td>
+                <td className="text-right">{item.Quantity}</td>
+                <td className="text-right">{fmt(item.UnitPrice)}</td>
+                <td className="text-right">{fmt(item.DiscountAmount)}</td>
+                <td className="text-right fw-bold">{fmt(item.LineTotal)}</td>
+                <td><button className="btn-icon danger" style={{ fontSize: 11 }} onClick={() => removeItem(i)}>✕</button></td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
+        <div>
+          <div className="form-group">
+            <label className="form-label">Overall Discount (PKR)</label>
+            <input className="form-input" type="number" min="0" step="0.01" value={overallDiscount} onChange={(e) => setOverallDiscount(e.target.value)} />
+          </div>
+          <div className="form-group">
+            <label className="form-label">Notes</label>
+            <textarea className="form-textarea" value={notes} onChange={(e) => setNotes(e.target.value)} style={{ minHeight: 60 }} />
+          </div>
+        </div>
+        <div style={{ background: 'var(--bg)', borderRadius: 8, padding: 16 }}>
+          <p style={{ fontWeight: 700, fontSize: 13, marginBottom: 12 }}>Summary</p>
+          {[['Subtotal', subtotal], ['Discount', Number(overallDiscount)], ['Total', totalAmt], ['Paid', Number(sale.PaidAmount || 0)], ['Balance', balance]].map(([l, v]) => (
+            <div key={l} style={{ display: 'flex', justifyContent: 'space-between', padding: '5px 0', fontSize: 13, fontWeight: ['Total', 'Balance'].includes(l) ? 700 : 400 }}>
+              <span>{l}</span><span>{fmt(v)}</span>
+            </div>
+          ))}
         </div>
       </div>
     </Modal>

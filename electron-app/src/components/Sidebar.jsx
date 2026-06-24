@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 
 const NAV = [
   { id: 'dashboard', label: 'Dashboard', icon: <GridIcon /> },
@@ -12,11 +12,24 @@ const NAV = [
 ];
 
 export default function Sidebar({ current, onNavigate }) {
+  const [companyName, setCompanyName] = useState('Stock Inventory');
+  const [logoSrc, setLogoSrc] = useState(null);
+
+  useEffect(() => {
+    window.api.getConfig().then((r) => {
+      if (r.ok && r.data?.CompanyName) setCompanyName(r.data.CompanyName);
+    });
+    window.api.getLogoSrc().then((res) => { if (res && res.ok && res.data) setLogoSrc(res.data); });
+  }, []);
+
   return (
     <div className="sidebar">
       <div className="sidebar-brand">
-        <h2>Stock Inventory</h2>
-        <p>Management System</p>
+        {logoSrc && <img src={logoSrc} alt="" className="sidebar-logo" />}
+        <div className="sidebar-brand-text">
+          <h2>{companyName}</h2>
+          <p>Management System</p>
+        </div>
       </div>
       <nav className="sidebar-nav">
         {NAV.map((item) => (

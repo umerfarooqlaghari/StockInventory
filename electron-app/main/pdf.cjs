@@ -1,4 +1,5 @@
 'use strict';
+const fs = require('fs');
 const PDFDocument = require('pdfkit');
 
 // ── helpers ────────────────────────────────────────────────────────────────────
@@ -22,7 +23,7 @@ function statusColor(status) {
 }
 
 // ── main ───────────────────────────────────────────────────────────────────────
-function generateInvoicePdf(sale, config) {
+function generateInvoicePdf(sale, config, logoPath) {
   return new Promise((resolve, reject) => {
     const doc = new PDFDocument({ size: 'A4', margins: { top: 0, left: 0, right: 0, bottom: 0 }, autoFirstPage: true });
     const chunks = [];
@@ -50,15 +51,26 @@ function generateInvoicePdf(sale, config) {
     // ── 1. Header band ──────────────────────────────────────────────────────────
     doc.rect(0, 0, PW, 90).fill(navy);
 
+    let textX = ML;
+    const hasLogo = logoPath && fs.existsSync(logoPath);
+    if (hasLogo) {
+      try {
+        doc.image(logoPath, ML, 14, { fit: [62, 62] });
+        textX = ML + 72;
+      } catch {
+        // skip broken logo files
+      }
+    }
+
     // Company name
-    doc.font('Helvetica-Bold').fontSize(22).fillColor(white)
-       .text(config?.CompanyName || 'Printing Plates Inventory', ML, 22, { lineBreak: false });
+    doc.font('Helvetica-Bold').fontSize(hasLogo ? 18 : 22).fillColor(white)
+       .text(config?.CompanyName || 'Printing Plates Inventory', textX, 22, { lineBreak: false });
 
     // Sub-labels
     const companyMeta = [config?.CompanyPhone, config?.CompanyAddress].filter(Boolean).join('  ·  ');
     if (companyMeta) {
       doc.font('Helvetica').fontSize(9).fillColor('rgba(255,255,255,0.55)')
-         .text(companyMeta, ML, 52, { lineBreak: false });
+         .text(companyMeta, textX, 52, { lineBreak: false });
     }
 
     // "INVOICE" label — top right

@@ -4,6 +4,10 @@ import StatusBadge from '../components/StatusBadge.jsx';
 
 const fmt = (n) => `PKR ${Number(n || 0).toLocaleString('en-PK', { minimumFractionDigits: 2 })}`;
 const fmtDate = (d) => d ? new Date(d).toLocaleDateString() : '—';
+const toDateInputValue = (d) => {
+  const dt = d ? new Date(d) : new Date();
+  return `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, '0')}-${String(dt.getDate()).padStart(2, '0')}`;
+};
 
 export const PO_STATUSES = ['Pending', 'Received', 'Not Delivered', 'Out of Stock', 'Cancelled'];
 
@@ -447,6 +451,7 @@ function CreatePurchaseModal({ onClose, onSaved }) {
   const [inventory, setInventory] = useState([]);
   const [suppliers, setSuppliers] = useState([]);
   const [supplierName, setSupplierName] = useState('');
+  const [purchaseDate, setPurchaseDate] = useState(toDateInputValue());
   const [status, setStatus] = useState('Pending');
   const [notes, setNotes] = useState('');
   const [items, setItems] = useState([]);
@@ -518,6 +523,7 @@ function CreatePurchaseModal({ onClose, onSaved }) {
     setSaving(true); setError('');
     const res = await window.api.createPurchase({
       SupplierName: finalSupplier,
+      PurchaseDate: purchaseDate,
       Status: status,
       Notes: notes,
       Items: finalItems,
@@ -538,7 +544,7 @@ function CreatePurchaseModal({ onClose, onSaved }) {
         New orders default to <strong>Pending</strong>. Stock and procurement cost only apply when status is <strong>Received</strong>.
       </div>
 
-      <div className="form-row form-row-3" style={{ marginBottom: 16 }}>
+      <div className="form-row form-row-2" style={{ marginBottom: 12 }}>
         <div className="form-group">
           <label className="form-label">Supplier *</label>
           {suppliers.length > 0 ? (
@@ -556,6 +562,12 @@ function CreatePurchaseModal({ onClose, onSaved }) {
             <input className="form-input" style={{ marginTop: 6 }} placeholder="Enter supplier name" value="" onChange={(e) => setSupplierName(e.target.value)} autoFocus />
           )}
         </div>
+        <div className="form-group">
+          <label className="form-label">Purchase Date *</label>
+          <input className="form-input" type="date" value={purchaseDate} onChange={(e) => setPurchaseDate(e.target.value)} />
+        </div>
+      </div>
+      <div className="form-row form-row-2" style={{ marginBottom: 16 }}>
         <div className="form-group">
           <label className="form-label">Status</label>
           <select className="form-select" value={status} onChange={(e) => setStatus(e.target.value)}>
@@ -629,6 +641,7 @@ function EditPurchaseModal({ purchase, onClose, onSaved }) {
   const [inventory, setInventory] = useState([]);
   const [suppliers, setSuppliers] = useState([]);
   const [supplierName, setSupplierName] = useState(purchase.SupplierName || '');
+  const [purchaseDate, setPurchaseDate] = useState(toDateInputValue(purchase.PurchaseDate));
   const [status, setStatus] = useState(displayStatus(purchase));
   const [statusNotes, setStatusNotes] = useState(purchase.StatusNotes || '');
   const [notes, setNotes] = useState(purchase.Notes || '');
@@ -670,6 +683,7 @@ function EditPurchaseModal({ purchase, onClose, onSaved }) {
     const res = await window.api.updatePurchase({
       _id: purchase._id?.toString(),
       SupplierName: finalSupplier,
+      PurchaseDate: purchaseDate,
       Status: status,
       StatusNotes: statusNotes,
       Notes: notes,
@@ -706,21 +720,25 @@ function EditPurchaseModal({ purchase, onClose, onSaved }) {
           )}
         </div>
         <div className="form-group">
+          <label className="form-label">Purchase Date *</label>
+          <input className="form-input" type="date" value={purchaseDate} onChange={(e) => setPurchaseDate(e.target.value)} />
+        </div>
+      </div>
+      <div className="form-row form-row-2" style={{ marginBottom: 16 }}>
+        <div className="form-group">
           <label className="form-label">Status</label>
           <select className="form-select" value={status} onChange={(e) => setStatus(e.target.value)}>
             {PO_STATUSES.map((s) => <option key={s} value={s}>{s}</option>)}
           </select>
         </div>
-      </div>
-      <div className="form-row form-row-2" style={{ marginBottom: 16 }}>
         <div className="form-group">
           <label className="form-label">Status Notes</label>
           <input className="form-input" value={statusNotes} onChange={(e) => setStatusNotes(e.target.value)} placeholder="Reason for status change" />
         </div>
-        <div className="form-group">
-          <label className="form-label">Notes</label>
-          <input className="form-input" value={notes} onChange={(e) => setNotes(e.target.value)} />
-        </div>
+      </div>
+      <div className="form-group" style={{ marginBottom: 16 }}>
+        <label className="form-label">Notes</label>
+        <input className="form-input" value={notes} onChange={(e) => setNotes(e.target.value)} />
       </div>
 
       <div style={{ background: 'var(--bg)', borderRadius: 8, padding: 16, marginBottom: 16 }}>

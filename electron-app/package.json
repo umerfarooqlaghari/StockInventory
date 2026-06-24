@@ -29,6 +29,7 @@
     },
     "files": [
       "dist/**/*",
+      "public/**/*",
       "electron.cjs",
       "preload.cjs",
       "main/**/*",

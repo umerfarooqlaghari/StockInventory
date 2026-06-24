@@ -1,14 +1,8 @@
-import React, { useEffect } from 'react';
+import React from 'react';
 
 export default function Modal({ title, onClose, children, footer, wide }) {
-  useEffect(() => {
-    const handler = (e) => { if (e.key === 'Escape') onClose?.(); };
-    window.addEventListener('keydown', handler);
-    return () => window.removeEventListener('keydown', handler);
-  }, [onClose]);
-
   return (
-    <div className="modal-overlay" onClick={(e) => { if (e.target === e.currentTarget) onClose?.(); }}>
+    <div className="modal-overlay">
       <div className="modal" style={wide ? { maxWidth: 800 } : {}}>
         <div className="modal-header">
           <h2>{title}</h2>
