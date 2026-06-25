@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import Auth from './pages/Auth.jsx';
 import Sidebar from './components/Sidebar.jsx';
 import Dashboard from './pages/Dashboard.jsx';
 import Inventory from './pages/Inventory.jsx';
@@ -9,14 +10,32 @@ import Suppliers from './pages/Suppliers.jsx';
 import MasterData from './pages/MasterData.jsx';
 import Settings from './pages/Settings.jsx';
 
-const PAGES = { dashboard: Dashboard, inventory: Inventory, masterdata: MasterData, clients: Clients, sales: Sales, purchases: Purchases, suppliers: Suppliers, settings: Settings };
+const PAGES = {
+  dashboard: Dashboard,
+  inventory: Inventory,
+  masterdata: MasterData,
+  clients: Clients,
+  sales: Sales,
+  purchases: Purchases,
+  suppliers: Suppliers,
+  settings: Settings,
+};
 
 export default function App() {
+  const [auth, setAuth] = useState(null); // null = not authenticated
   const [page, setPage] = useState('dashboard');
+
+  if (!auth) {
+    return <Auth onAuthenticated={setAuth} />;
+  }
+
   const Page = PAGES[page] || Dashboard;
   return (
     <div className="app">
-      <Sidebar current={page} onNavigate={setPage} />
+      <Sidebar current={page} onNavigate={setPage} onLogout={() => {
+        window.api.logout();
+        setAuth(null);
+      }} />
       <div className="main-content">
         <Page />
       </div>

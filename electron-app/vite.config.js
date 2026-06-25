@@ -12,4 +12,10 @@ export default defineConfig({
     port: 5173,
     strictPort: true,
   },
+  optimizeDeps: {
+    // Pre-bundle these upfront so Vite doesn't do it on first request
+    include: ['react', 'react-dom', 'react-dom/client'],
+    // Exclude Node.js / Electron-only packages from browser bundling
+    exclude: ['electron'],
+  },
 });

@@ -1,65 +1,26 @@
 'use strict';
-require('./env.cjs').loadEnv();
-const { MongoClient, ObjectId } = require('mongodb');
-
-const DB_NAME = process.env.MONGO_DB_NAME || 'StockInventoryDB';
-
-let client = null;
-let db = null;
-let lastConnectError = null;
-
-function getMongoUri() {
-  const uri = process.env.MONGO_URI;
-  if (!uri) {
-    throw new Error('MONGO_URI is missing — add it to electron-app/.env');
-  }
-  return uri;
-}
-
-async function connect() {
-  if (db) return db;
-  const uri = getMongoUri();
-  try {
-    client = new MongoClient(uri, {
-      serverSelectionTimeoutMS: 15000,
-      connectTimeoutMS: 15000,
-    });
-    await client.connect();
-    db = client.db(DB_NAME);
-    await ensureIndexes();
-    await ensureMasterDataSeed();
-    lastConnectError = null;
-    console.log('MongoDB connected');
-    return db;
-  } catch (err) {
-    lastConnectError = err;
-    client = null;
-    db = null;
-    throw err;
-  }
-}
-
-function getLastConnectError() {
-  return lastConnectError;
-}
+/**
+ * dbService.js (backend-api)
+ *
+ * This is the tenant-aware version of the DB layer.
+ * It is identical in API to the original electron-app/main/db.cjs EXCEPT
+ * that it reads the MongoDB "db" handle from AsyncLocalStorage (tenantContext)
+ * instead of holding a global singleton.
+ *
+ * The auth middleware sets the context for each HTTP request, ensuring
+ * complete data isolation between tenants.
+ */
+const { ObjectId } = require('mongodb');
+const { getTenantDb } = require('./tenantContext');
 
 function requireDb() {
-  if (!db) {
-    const hint = lastConnectError?.message || 'Connection never established';
-    throw new Error(`Database not connected: ${hint}`);
-  }
+  const db = getTenantDb();
+  if (!db) throw new Error('No tenant database in current context — auth middleware missing?');
   return db;
 }
 
-async function disconnect() {
-  if (client) {
-    await client.close();
-    client = null;
-    db = null;
-  }
-}
-
 async function ensureIndexes() {
+  const db = requireDb();
   await migrateLegacySchema();
   await db.collection('inventory_items').createIndex({ ItemCode: 1 }, { unique: true, sparse: true });
   await db.collection('clients').createIndex({ ClientCode: 1 }, { unique: true, sparse: true });
@@ -75,14 +36,22 @@ async function ensureIndexes() {
 // Old MAUI schema used snake_case fields with non-sparse unique indexes.
 // New docs use PascalCase, leaving snake_case null → duplicate key on 2nd insert.
 async function dropLegacyIndex(collection, indexName) {
-  const indexes = await collection.indexes();
-  if (indexes.some((i) => i.name === indexName)) {
-    await collection.dropIndex(indexName);
-    console.log(`Dropped legacy index ${indexName}`);
+  try {
+    const indexes = await collection.indexes();
+    if (indexes.some((i) => i.name === indexName)) {
+      await collection.dropIndex(indexName);
+      console.log(`Dropped legacy index ${indexName}`);
+    }
+  } catch (err) {
+    // 26 = NamespaceNotFound (collection doesn't exist yet for new tenants)
+    if (err.code !== 26) {
+      console.warn(`Warning checking indexes for ${collection.collectionName}:`, err.message);
+    }
   }
 }
 
 async function migrateLegacySchema() {
+  const db = requireDb();
   const inventory = db.collection('inventory_items');
   await dropLegacyIndex(inventory, 'item_code_1');
   await inventory.updateMany(
@@ -1231,9 +1200,8 @@ async function getDashboardMetrics() {
 }
 
 module.exports = {
-  connect,
-  disconnect,
-  getLastConnectError,
+  ensureIndexes,
+  ensureMasterDataSeed,
   getConfig, saveConfig,
   getAllInventory, getLowStock, createItem, updateItem, deleteItem, updateStock, getInventoryHistory, rebuildInventoryHistory,
   getAllClients, createClient, updateClient, deleteClient, getClientLedger, getClientBalance,

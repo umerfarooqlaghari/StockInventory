@@ -24,6 +24,7 @@ dist/
 **/.env
 **/.env.*
 **/.env.example
+backend-api/node_modules/
 
 # ── macOS ──────────────────────────────────────────────────────────
 .DS_Store
@@ -54,3 +55,9 @@ Desktop.ini
 
 # ── Generated invoice PDFs & exports (runtime output) ─────────────
 *.pdf
+*.xlsx
+*.csv
+
+# ── .NET / C# ─────────────────────────────────────────────────────
+[Bb]in/
+[Oo]bj/
