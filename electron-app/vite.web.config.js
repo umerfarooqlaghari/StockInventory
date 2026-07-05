@@ -3,19 +3,16 @@ import react from '@vitejs/plugin-react';
 
 export default defineConfig({
   plugins: [react()],
-  base: './',
+  base: '/',
   build: {
-    outDir: 'dist',
+    outDir: 'dist-web',
     emptyOutDir: true,
   },
   server: {
-    port: 5173,
+    port: 5174,
     strictPort: true,
   },
   optimizeDeps: {
-    // Pre-bundle these upfront so Vite doesn't do it on first request
     include: ['react', 'react-dom', 'react-dom/client'],
-    // Exclude Node.js / Electron-only packages from browser bundling
-    exclude: ['electron'],
   },
 });

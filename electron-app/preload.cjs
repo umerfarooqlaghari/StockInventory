@@ -2,6 +2,11 @@
 const { contextBridge, ipcRenderer } = require('electron');
 
 contextBridge.exposeInMainWorld('api', {
+  // Auth (calls backend-api via main process)
+  login: (email, password) => ipcRenderer.invoke('auth:login', email, password),
+  register: (email, password, companyName) => ipcRenderer.invoke('auth:register', email, password, companyName),
+  logout: () => ipcRenderer.invoke('auth:logout'),
+
   // Dashboard
   getDashboard: () => ipcRenderer.invoke('dashboard:get'),
   runAlerts: () => ipcRenderer.invoke('alerts:runNow'),
