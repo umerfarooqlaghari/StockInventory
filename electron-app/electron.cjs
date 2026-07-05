@@ -157,8 +157,8 @@ function startAlertService() {
 }
 
 function stopAlertService() {
-  if (_clientTask) { _clientTask.destroy(); _clientTask = null; }
-  if (_ownerTask)  { _ownerTask.destroy();  _ownerTask  = null; }
+  if (_clientTask) { _clientTask.stop(); _clientTask = null; }
+  if (_ownerTask)  { _ownerTask.stop();  _ownerTask  = null; }
 }
 
 // ─── APP LIFECYCLE ────────────────────────────────────────────────────────────

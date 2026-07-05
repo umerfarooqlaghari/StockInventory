@@ -48,6 +48,7 @@ async function register(req, res) {
     const tenantDb = await getTenantDatabase(tenantId);
     await tenantStorage.run({ tenantId, db: tenantDb }, async () => {
       await ensureIndexes();
+      await ensureMasterDataSeed();
       const config = await getConfig();
       config.CompanyName = companyName;
       config.TenantId = tenantId;

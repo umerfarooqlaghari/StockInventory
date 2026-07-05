@@ -19,12 +19,13 @@ log()  { echo -e "${BOLD}${CYAN}[dev]${RESET} $*"; }
 ok()   { echo -e "${BOLD}${GREEN}[dev]${RESET} $*"; }
 warn() { echo -e "${BOLD}${YELLOW}[dev]${RESET} $*"; }
 
-API_PID=""; VITE_PID=""; APP_PID=""
+API_PID=""; VITE_PID=""; WEB_PID=""; APP_PID=""
 
 cleanup() {
   echo ""
   warn "Shutting down…"
   [ -n "$APP_PID"  ] && kill "$APP_PID"  2>/dev/null
+  [ -n "$WEB_PID"  ] && kill "$WEB_PID"  2>/dev/null
   [ -n "$VITE_PID" ] && kill "$VITE_PID" 2>/dev/null
   [ -n "$API_PID"  ] && kill "$API_PID"  2>/dev/null
   wait 2>/dev/null
@@ -40,15 +41,26 @@ if [ ! -d "$APP_DIR/node_modules" ]; then
   warn "Installing electron-app deps…"; (cd "$APP_DIR" && npm install --silent)
 fi
 
+API_PORT="${API_PORT:-4000}"
+DESKTOP_PORT="${DESKTOP_PORT:-5173}"
+WEB_PORT="${WEB_PORT:-5174}"
+
+# ── Port Pre-cleanup ─────────────────────────────────────────────────────────
+lsof -t -i:"$API_PORT" -i:"$DESKTOP_PORT" -i:"$WEB_PORT" | xargs kill -9 2>/dev/null || true
+
 # ── 1. backend-api ────────────────────────────────────────────────────────────
-log "Starting ${BOLD}backend-api${RESET} on :4000"
-(cd "$API_DIR" && node src/server.js) &
+log "Starting ${BOLD}backend-api${RESET} on :$API_PORT"
+(cd "$API_DIR" && PORT="$API_PORT" node src/server.js) &
 API_PID=$!
 
-# ── 2. Vite dev server ────────────────────────────────────────────────────────
-log "Starting ${BOLD}Vite${RESET} on :5173"
-(cd "$APP_DIR" && npx vite) &
+# ── 2. Vite dev server (Desktop & Web) ────────────────────────────────────────
+log "Starting ${BOLD}Vite (Desktop)${RESET} on :$DESKTOP_PORT"
+(cd "$APP_DIR" && npx vite --port "$DESKTOP_PORT") &
 VITE_PID=$!
+
+log "Starting ${BOLD}Vite (Web)${RESET} on :$WEB_PORT"
+(cd "$ROOT/web-app" && npm run dev -- --port "$WEB_PORT") &
+WEB_PID=$!
 
 # Vite starts in ~200ms. Sleep 3s to be safe, then launch Electron.
 log "Waiting for Vite…"

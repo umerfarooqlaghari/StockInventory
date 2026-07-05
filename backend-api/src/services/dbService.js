@@ -22,15 +22,17 @@ function requireDb() {
 async function ensureIndexes() {
   const db = requireDb();
   await migrateLegacySchema();
-  await db.collection('inventory_items').createIndex({ ItemCode: 1 }, { unique: true, sparse: true });
-  await db.collection('clients').createIndex({ ClientCode: 1 }, { unique: true, sparse: true });
-  await db.collection('sales').createIndex({ InvoiceNumber: 1 }, { unique: true, sparse: true });
-  await db.collection('purchases').createIndex({ PurchaseNumber: 1 }, { unique: true, sparse: true });
-  await db.collection('sales').createIndex({ ClientId: 1 });
-  await db.collection('sales').createIndex({ PaymentStatus: 1 });
-  await db.collection('master_data').createIndex({ Type: 1, Name: 1 }, { unique: true });
-  await db.collection('master_data').createIndex({ Type: 1, SortOrder: 1 });
-  await db.collection('inventory_history').createIndex({ InventoryItemId: 1, EventDate: 1 });
+  await Promise.all([
+    db.collection('inventory_items').createIndex({ ItemCode: 1 }, { unique: true, sparse: true }),
+    db.collection('clients').createIndex({ ClientCode: 1 }, { unique: true, sparse: true }),
+    db.collection('sales').createIndex({ InvoiceNumber: 1 }, { unique: true, sparse: true }),
+    db.collection('purchases').createIndex({ PurchaseNumber: 1 }, { unique: true, sparse: true }),
+    db.collection('sales').createIndex({ ClientId: 1 }),
+    db.collection('sales').createIndex({ PaymentStatus: 1 }),
+    db.collection('master_data').createIndex({ Type: 1, Name: 1 }, { unique: true }),
+    db.collection('master_data').createIndex({ Type: 1, SortOrder: 1 }),
+    db.collection('inventory_history').createIndex({ InventoryItemId: 1, EventDate: 1 }),
+  ]);
 }
 
 // Old MAUI schema used snake_case fields with non-sparse unique indexes.

@@ -21,8 +21,9 @@ let adminClient = null;
 
 async function getAdminClient() {
   if (adminClient) return adminClient;
-  adminClient = new MongoClient(ADMIN_MONGO_URI);
-  await adminClient.connect();
+  const client = new MongoClient(ADMIN_MONGO_URI, { family: 4, serverSelectionTimeoutMS: 10000 });
+  await client.connect();
+  adminClient = client;
   return adminClient;
 }
 
