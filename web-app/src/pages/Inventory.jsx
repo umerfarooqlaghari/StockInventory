@@ -1,8 +1,9 @@
 import React, { useEffect, useState, useCallback } from 'react';
 import Modal from '../components/Modal.jsx';
+import { formatCurrency, getCurrencySymbol, loadTenantConfig } from '../utils/currency.js';
 
 const EMPTY_ITEM = { ItemCode: '', StockName: '', PlateSize: '', Category: '', SupplierName: '', PurchasePrice: '', SalePrice: '', CurrentStock: '', ReorderLevel: '10', Unit: 'Pcs', Description: '' };
-const fmt = (n) => `PKR ${Number(n || 0).toLocaleString('en-PK', { minimumFractionDigits: 2 })}`;
+const fmt = (n) => formatCurrency(n);
 
 export default function Inventory() {
   const [items, setItems] = useState([]);
@@ -17,6 +18,11 @@ export default function Inventory() {
   const [masterLists, setMasterLists] = useState({ categories: [], sizes: [], stockNames: [] });
   const [suppliers, setSuppliers] = useState([]);
   const [historyItem, setHistoryItem] = useState(null);
+  const [config, setConfig] = useState(null);
+
+  useEffect(() => {
+    loadTenantConfig().then((cfg) => { if (cfg) setConfig(cfg); });
+  }, []);
 
   const load = useCallback(async (q) => {
     setLoading(true);
@@ -266,11 +272,11 @@ export default function Inventory() {
           </div>
           <div className="form-row form-row-3">
             <div className="form-group">
-              <label className="form-label">Purchase Price (PKR)</label>
+              <label className="form-label">Purchase Price ({getCurrencySymbol()})</label>
               <input className="form-input" type="number" min="0" step="0.01" placeholder="0.00" value={form.PurchasePrice} onChange={(e) => setForm({ ...form, PurchasePrice: e.target.value })} />
             </div>
             <div className="form-group">
-              <label className="form-label">Sale Price (PKR)</label>
+              <label className="form-label">Sale Price ({getCurrencySymbol()})</label>
               <input className="form-input" type="number" min="0" step="0.01" placeholder="0.00" value={form.SalePrice} onChange={(e) => setForm({ ...form, SalePrice: e.target.value })} />
             </div>
             <div className="form-group">

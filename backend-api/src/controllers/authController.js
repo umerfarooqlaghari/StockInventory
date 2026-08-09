@@ -25,7 +25,7 @@ if (!JWT_SECRET) throw new Error('JWT_SECRET is not set in backend-api/.env');
 
 async function register(req, res) {
   try {
-    const { email, password, companyName } = req.body;
+    const { email, password, companyName, region, currency, currencySymbol, vatRate, taxRate } = req.body;
 
     if (!email || !password || !companyName) {
       return res.status(400).json({ error: 'email, password and companyName are required' });
@@ -44,6 +44,12 @@ async function register(req, res) {
     // Tenant ID is a simple hex string derived from a new ObjectId
     const tenantId = new ObjectId().toHexString();
 
+    // Determine regional defaults if passed
+    const selectedRegion = region || 'KSA';
+    const selectedCurrency = currency || (selectedRegion === 'KSA' ? 'SAR' : 'USD');
+    const selectedSymbol = currencySymbol || selectedCurrency;
+    const parsedVatRate = taxRate !== undefined ? parseFloat(taxRate) : (vatRate !== undefined ? parseFloat(vatRate) : (selectedRegion === 'KSA' ? 15 : 0));
+
     // Provision the tenant database and seed master data
     const tenantDb = await getTenantDatabase(tenantId);
     await tenantStorage.run({ tenantId, db: tenantDb }, async () => {
@@ -52,6 +58,10 @@ async function register(req, res) {
       const config = await getConfig();
       config.CompanyName = companyName;
       config.TenantId = tenantId;
+      config.Region = selectedRegion;
+      config.Currency = selectedCurrency;
+      config.CurrencySymbol = selectedSymbol;
+      config.TaxRate = parsedVatRate;
       await saveConfig(config);
     });
 

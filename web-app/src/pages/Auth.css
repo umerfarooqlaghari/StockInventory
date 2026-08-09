@@ -108,7 +108,8 @@
   letter-spacing: 0.3px;
 }
 
-.auth-field input {
+.auth-field input,
+.auth-select {
   padding: 11px 14px;
   background: rgba(255, 255, 255, 0.06);
   border: 1px solid rgba(255, 255, 255, 0.1);
@@ -120,11 +121,17 @@
   transition: border-color 0.2s, box-shadow 0.2s;
 }
 
+.auth-select option {
+  background: #0f172a;
+  color: #e2e8f0;
+}
+
 .auth-field input::placeholder {
   color: #334155;
 }
 
-.auth-field input:focus {
+.auth-field input:focus,
+.auth-select:focus {
   border-color: rgba(99, 179, 237, 0.5);
   box-shadow: 0 0 0 3px rgba(99, 179, 237, 0.12);
 }

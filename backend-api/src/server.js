@@ -49,7 +49,7 @@ app.get('/api/health', (_req, res) => res.json({ status: 'ok' }));
 // Generic RPC proxy — maps POST /api/rpc/:method → dbService[method](...args)
 // Tenant context is already set by authMiddleware.
 const ALLOWED_METHODS = new Set([
-  'getConfig', 'saveConfig',
+  'getConfig', 'saveConfig', 'getVatConfig', 'updateVatConfig',
   'getAllInventory', 'getLowStock', 'createItem', 'updateItem', 'deleteItem',
   'updateStock', 'getInventoryHistory', 'rebuildInventoryHistory',
   'getAllClients', 'createClient', 'updateClient', 'deleteClient',
@@ -66,6 +66,26 @@ const ALLOWED_METHODS = new Set([
   'createMasterDataEntry', 'updateMasterDataEntry', 'deleteMasterDataEntry',
   'getDashboardMetrics',
 ]);
+
+// ─── VAT API ROUTES ────────────────────────────────────────────────────────
+app.get('/api/vat', authMiddleware, async (_req, res) => {
+  try {
+    const data = await dbService.getVatConfig();
+    return res.json({ ok: true, vat: data });
+  } catch (err) {
+    return res.status(500).json({ error: err.message });
+  }
+});
+
+app.put('/api/vat', authMiddleware, async (req, res) => {
+  try {
+    const { vatRate, region } = req.body;
+    const data = await dbService.updateVatConfig(vatRate, region);
+    return res.json({ ok: true, vat: data });
+  } catch (err) {
+    return res.status(500).json({ error: err.message });
+  }
+});
 
 app.post('/api/rpc/:method', authMiddleware, async (req, res) => {
   const { method } = req.params;

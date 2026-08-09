@@ -1,7 +1,8 @@
 import React, { useEffect, useState, useCallback } from 'react';
 import StatusBadge from '../components/StatusBadge.jsx';
+import { formatCurrency, loadTenantConfig } from '../utils/currency.js';
 
-const fmt = (n) => `PKR ${Number(n || 0).toLocaleString('en-PK', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+const fmt = (n, cfg) => formatCurrency(n, cfg);
 const fmtDate = (d) => d ? new Date(d).toLocaleDateString() : '—';
 
 export default function Dashboard() {
@@ -9,6 +10,11 @@ export default function Dashboard() {
   const [loading, setLoading] = useState(true);
   const [alerting, setAlerting] = useState(false);
   const [alertResult, setAlertResult] = useState(null);
+  const [config, setConfig] = useState(null);
+
+  useEffect(() => {
+    loadTenantConfig().then((cfg) => { if (cfg) setConfig(cfg); });
+  }, []);
 
   const load = useCallback(async () => {
     setLoading(true);

@@ -1,8 +1,9 @@
 import React, { useEffect, useState, useCallback } from 'react';
 import Modal from '../components/Modal.jsx';
 import StatusBadge from '../components/StatusBadge.jsx';
+import { formatCurrency, getCurrencySymbol, getVatRate, loadTenantConfig } from '../utils/currency.js';
 
-const fmt = (n) => `PKR ${Number(n || 0).toLocaleString('en-PK', { minimumFractionDigits: 2 })}`;
+const fmt = (n, cfg) => formatCurrency(n, cfg);
 const fmtDate = (d) => d ? new Date(d).toLocaleDateString() : '—';
 const toDateInputValue = (d) => {
   const dt = d ? new Date(d) : new Date();
@@ -20,6 +21,11 @@ export default function Sales() {
   const [editingSale, setEditingSale] = useState(null);
   const [payModal, setPayModal] = useState(null); // { sale }
   const [notifyMsg, setNotifyMsg] = useState(null); // { type: 'ok'|'err', text }
+  const [config, setConfig] = useState(null);
+
+  useEffect(() => {
+    loadTenantConfig().then((cfg) => { if (cfg) setConfig(cfg); });
+  }, []);
 
   const load = useCallback(async (q, st) => {
     setLoading(true);
@@ -348,7 +354,7 @@ function RecordPaymentModal({ sale, onClose, onSaved }) {
 
       {/* New payment entry */}
       <div className="form-group">
-        <label className="form-label">Payment Amount (PKR) *</label>
+        <label className="form-label">Payment Amount ({getCurrencySymbol()}) *</label>
         <input className="form-input" type="number" min="0.01" step="0.01" placeholder={`max ${fmt(remaining)}`}
           value={amount} onChange={(e) => setAmount(e.target.value)} autoFocus />
       </div>
@@ -457,21 +463,24 @@ function CreateSaleModal({ onClose, onSaved }) {
   // Include the pending row in live totals so the summary is always meaningful
   const allLines = pendingLine ? [...items, pendingLine] : items;
   const subtotal = allLines.reduce((s, i) => s + i.LineTotal, 0);
-  const totalAmt = subtotal - Number(overallDiscount);
+  const netSubtotal = Math.max(0, subtotal - Number(overallDiscount));
+  const vatRate = getVatRate();
+  const taxAmount = netSubtotal * (vatRate / 100);
+  const totalAmt = netSubtotal + taxAmount;
   const balance = totalAmt - Number(paidAmount);
   const totalProfit = allLines.reduce((s, i) => s + i.TotalProfit, 0) - Number(overallDiscount);
 
   const selectedClient = clients.find((c) => c._id === selectedClientId);
 
-  async function uploadProof(invoiceHint) {
-    const filePath = await window.api.openFileDialog({
+  async function uploadProof() {
+    const fp = await window.api.openFileDialog({
       title: 'Select Payment Proof',
       properties: ['openFile'],
       filters: [{ name: 'Images / PDF', extensions: ['png', 'jpg', 'jpeg', 'gif', 'webp', 'pdf'] }],
     });
-    if (!filePath) return;
+    if (!fp) return;
     setProofUploading(true);
-    const res = await window.api.uploadPaymentProof(filePath, invoiceHint || 'new');
+    const res = await window.api.uploadPaymentProof(fp, 'new');
     setProofUploading(false);
     if (res.ok) setProofUrl(res.data);
     else alert('Upload failed: ' + (res.error || 'unknown error'));
@@ -490,7 +499,9 @@ function CreateSaleModal({ onClose, onSaved }) {
 
     setSaving(true); setError('');
     const fSub = finalItems.reduce((s, i) => s + i.LineTotal, 0);
-    const fTotal = fSub - Number(overallDiscount);
+    const fNet = Math.max(0, fSub - Number(overallDiscount));
+    const fTax = fNet * (vatRate / 100);
+    const fTotal = fNet + fTax;
     const sale = {
       ClientId: selectedClientId,
       ClientName: selectedClient?.Name || '',
@@ -499,6 +510,7 @@ function CreateSaleModal({ onClose, onSaved }) {
       Items: finalItems,
       Subtotal: fSub,
       OverallDiscount: Number(overallDiscount),
+      TaxAmount: fTax,
       TotalAmount: fTotal,
       PaidAmount: Number(paidAmount),
       Notes: notes,
@@ -556,7 +568,7 @@ function CreateSaleModal({ onClose, onSaved }) {
               onChange={(e) => setNewItem({ ...newItem, qty: e.target.value })} />
           </div>
           <div>
-            <label className="form-label">Unit Price (PKR)</label>
+            <label className="form-label">Unit Price ({getCurrencySymbol()})</label>
             <input className="form-input" type="number" min="0" step="0.01" placeholder="0.00" value={newItem.price}
               onChange={(e) => setNewItem({ ...newItem, price: e.target.value })} />
           </div>
@@ -569,7 +581,7 @@ function CreateSaleModal({ onClose, onSaved }) {
         </div>
         {selectedInvItem && (
           <p style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 6 }}>
-            Purchase price: PKR {selectedInvItem.PurchasePrice} · Stock: {selectedInvItem.CurrentStock} {selectedInvItem.Unit}
+            Purchase price: {fmt(selectedInvItem.PurchasePrice)} · Stock: {selectedInvItem.CurrentStock} {selectedInvItem.Unit}
             {pendingLine && <span style={{ marginLeft: 12, color: 'var(--blue)' }}>→ Line total: {fmt(pendingLine.LineTotal)}</span>}
           </p>
         )}
@@ -620,12 +632,12 @@ function CreateSaleModal({ onClose, onSaved }) {
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
         <div>
           <div className="form-group">
-            <label className="form-label">Overall Discount (PKR)</label>
+            <label className="form-label">Overall Discount ({getCurrencySymbol()})</label>
             <input className="form-input" type="number" min="0" step="0.01" value={overallDiscount}
               onChange={(e) => setOverallDiscount(e.target.value)} />
           </div>
           <div className="form-group">
-            <label className="form-label">Amount Paid (PKR)</label>
+            <label className="form-label">Amount Paid ({getCurrencySymbol()})</label>
             <input className="form-input" type="number" min="0" step="0.01" value={paidAmount}
               onChange={(e) => setPaidAmount(e.target.value)} />
           </div>
@@ -676,6 +688,7 @@ function CreateSaleModal({ onClose, onSaved }) {
           {[
             ['Subtotal', subtotal],
             ['Overall Discount', Number(overallDiscount)],
+            [`VAT (${vatRate}%)`, taxAmount],
             ['Total', totalAmt],
             ['Paid', Number(paidAmount)],
             ['Balance', balance],
@@ -847,7 +860,7 @@ function EditSaleModal({ sale, onClose, onSaved }) {
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
         <div>
           <div className="form-group">
-            <label className="form-label">Overall Discount (PKR)</label>
+            <label className="form-label">Overall Discount ({getCurrencySymbol()})</label>
             <input className="form-input" type="number" min="0" step="0.01" value={overallDiscount} onChange={(e) => setOverallDiscount(e.target.value)} />
           </div>
           <div className="form-group">

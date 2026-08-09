@@ -1,8 +1,9 @@
 import React, { useEffect, useState, useCallback } from 'react';
 import Modal from '../components/Modal.jsx';
 import StatusBadge from '../components/StatusBadge.jsx';
+import { formatCurrency, getCurrencySymbol, loadTenantConfig } from '../utils/currency.js';
 
-const fmt = (n) => `PKR ${Number(n || 0).toLocaleString('en-PK', { minimumFractionDigits: 2 })}`;
+const fmt = (n) => formatCurrency(n);
 const fmtDate = (d) => d ? new Date(d).toLocaleDateString() : '—';
 const toDateInputValue = (d) => {
   const dt = d ? new Date(d) : new Date();
@@ -603,7 +604,7 @@ function CreatePurchaseModal({ onClose, onSaved }) {
             </select>
           </div>
           <div><label className="form-label">Qty</label><input className="form-input" type="number" min="1" value={newItem.qty} onChange={(e) => setNewItem({ ...newItem, qty: e.target.value })} /></div>
-          <div><label className="form-label">Unit Cost (PKR)</label><input className="form-input" type="number" min="0" step="0.01" value={newItem.cost} onChange={(e) => setNewItem({ ...newItem, cost: e.target.value })} /></div>
+          <div><label className="form-label">Unit Cost ({getCurrencySymbol()})</label><input className="form-input" type="number" min="0" step="0.01" value={newItem.cost} onChange={(e) => setNewItem({ ...newItem, cost: e.target.value })} /></div>
           <button className="btn btn-primary" onClick={addItem}>+ Add</button>
         </div>
       </div>
@@ -755,7 +756,7 @@ function EditPurchaseModal({ purchase, onClose, onSaved }) {
             </select>
           </div>
           <div><label className="form-label">Qty</label><input className="form-input" type="number" min="1" value={newItem.qty} onChange={(e) => setNewItem({ ...newItem, qty: e.target.value })} /></div>
-          <div><label className="form-label">Unit Cost (PKR)</label><input className="form-input" type="number" min="0" step="0.01" value={newItem.cost} onChange={(e) => setNewItem({ ...newItem, cost: e.target.value })} /></div>
+          <div><label className="form-label">Unit Cost ({getCurrencySymbol()})</label><input className="form-input" type="number" min="0" step="0.01" value={newItem.cost} onChange={(e) => setNewItem({ ...newItem, cost: e.target.value })} /></div>
           <button className="btn btn-primary" onClick={addItem}>+ Add</button>
         </div>
       </div>

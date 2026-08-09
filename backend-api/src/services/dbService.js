@@ -116,7 +116,14 @@ function oid(id) { try { return new ObjectId(id); } catch { return id; } }
 
 async function getConfig() {
   const cfg = await col('configuration').findOne({});
-  if (cfg) return cfg;
+  if (cfg) {
+    // Fill in default currency/region properties if missing on legacy configs
+    if (!cfg.Region) cfg.Region = 'KSA';
+    if (!cfg.Currency) cfg.Currency = 'SAR';
+    if (!cfg.CurrencySymbol) cfg.CurrencySymbol = cfg.Currency || 'SAR';
+    if (cfg.TaxRate === undefined) cfg.TaxRate = 15;
+    return cfg;
+  }
   const defaults = {
     CreditDays: 45,
     AlertDays: 48,
@@ -124,11 +131,14 @@ async function getConfig() {
     CompanyPhone: '',
     CompanyAddress: '',
     CompanyLogo: '',
-    TaxRate: 0,
+    Region: 'KSA',
+    Currency: 'SAR',
+    CurrencySymbol: 'SAR',
+    TaxRate: 15,
     LowStockThreshold: 10,
     SesFromEmail: 'info@alpha-devs.cloud',
     EmailSubjectTemplate: 'Payment Reminder - Invoice {InvoiceNumber}',
-    EmailBodyTemplate: `Dear {ClientName},\n\nThis is a reminder that Invoice #{InvoiceNumber} dated {SaleDate} for PKR {Amount} is now {Days} days outstanding.\n\nOutstanding Balance: PKR {Balance}\n\nPlease arrange payment at your earliest convenience.\n\nRegards,\n{CompanyName}`,
+    EmailBodyTemplate: `Dear {ClientName},\n\nThis is a reminder that Invoice #{InvoiceNumber} dated {SaleDate} for {Currency} {Amount} is now {Days} days outstanding.\n\nOutstanding Balance: {Currency} {Balance}\n\nPlease arrange payment at your earliest convenience.\n\nRegards,\n{CompanyName}`,
     PlateSizes: ['12x18', '18x24', '20x30', '25x35', '30x40', '32x45'],
     OwnerEmails: [],
     OwnerDailyReminderEnabled: false,
@@ -146,6 +156,24 @@ async function saveConfig(config) {
   data.UpdatedAt = new Date();
   await col('configuration').updateOne({}, { $set: data }, { upsert: true });
   return data;
+}
+
+async function getVatConfig() {
+  const cfg = await getConfig();
+  return {
+    region: cfg.Region || 'KSA',
+    currency: cfg.Currency || 'SAR',
+    currencySymbol: cfg.CurrencySymbol || cfg.Currency || 'SAR',
+    vatRate: cfg.TaxRate !== undefined ? cfg.TaxRate : 15,
+  };
+}
+
+async function updateVatConfig(vatRate, region) {
+  const cfg = await getConfig();
+  if (vatRate !== undefined) cfg.TaxRate = parseFloat(vatRate);
+  if (region) cfg.Region = region;
+  await saveConfig(cfg);
+  return getVatConfig();
 }
 
 // ─── INVENTORY ───────────────────────────────────────────────────────────────
@@ -1204,7 +1232,7 @@ async function getDashboardMetrics() {
 module.exports = {
   ensureIndexes,
   ensureMasterDataSeed,
-  getConfig, saveConfig,
+  getConfig, saveConfig, getVatConfig, updateVatConfig,
   getAllInventory, getLowStock, createItem, updateItem, deleteItem, updateStock, getInventoryHistory, rebuildInventoryHistory,
   getAllClients, createClient, updateClient, deleteClient, getClientLedger, getClientBalance,
   getAllSales, createSale, updateSale, recordPayment, markSaleReturned, deleteSale,
