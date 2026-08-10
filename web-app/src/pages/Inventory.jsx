@@ -1,8 +1,10 @@
 import React, { useEffect, useState, useCallback } from 'react';
 import Modal from '../components/Modal.jsx';
+import BarcodeScannerModal from '../components/BarcodeScannerModal.jsx';
+import { formatCurrency, getCurrencySymbol, loadTenantConfig } from '../utils/currency.js';
 
-const EMPTY_ITEM = { ItemCode: '', StockName: '', PlateSize: '', Category: '', SupplierName: '', PurchasePrice: '', SalePrice: '', CurrentStock: '', ReorderLevel: '10', Unit: 'Pcs', Description: '' };
-const fmt = (n) => `PKR ${Number(n || 0).toLocaleString('en-PK', { minimumFractionDigits: 2 })}`;
+const EMPTY_ITEM = { ItemCode: '', Barcode: '', StockName: '', PlateSize: '', Category: '', SupplierName: '', PurchasePrice: '', SalePrice: '', CurrentStock: '', ReorderLevel: '10', Unit: 'Pcs', Description: '' };
+const fmt = (n) => formatCurrency(n);
 
 export default function Inventory() {
   const [items, setItems] = useState([]);
@@ -17,6 +19,12 @@ export default function Inventory() {
   const [masterLists, setMasterLists] = useState({ categories: [], sizes: [], stockNames: [] });
   const [suppliers, setSuppliers] = useState([]);
   const [historyItem, setHistoryItem] = useState(null);
+  const [config, setConfig] = useState(null);
+  const [showScanner, setShowScanner] = useState(false);
+
+  useEffect(() => {
+    loadTenantConfig().then((cfg) => { if (cfg) setConfig(cfg); });
+  }, []);
 
   const load = useCallback(async (q) => {
     setLoading(true);
@@ -84,11 +92,31 @@ export default function Inventory() {
   const totalValue = items.reduce((s, i) => s + (i.CurrentStock * i.PurchasePrice), 0);
   const lowCount = items.filter((i) => Number(i.CurrentStock) <= Number(i.ReorderLevel || 10)).length;
 
+  async function handleBarcodeScan(code) {
+    setShowScanner(false);
+    if (!code) return;
+    const res = await window.api.getItemByBarcode(code);
+    if (res && res.ok && res.data) {
+      openEdit(res.data);
+    } else {
+      const local = items.find(i => i.Barcode === code || i.ItemCode === code);
+      if (local) {
+        openEdit(local);
+      } else {
+        window.api.getMasterDataLists().then((r) => { if (r.ok) setMasterLists(r.data); });
+        setForm({ ...EMPTY_ITEM, ItemCode: code, Barcode: code });
+        setEditId(null);
+        setError(`No existing item found for code "${code}". Pre-filled form to create new item.`);
+      }
+    }
+  }
+
   return (
     <>
       <div className="page-header">
         <h1>Inventory Management</h1>
         <div className="page-header-actions">
+          <button className="btn btn-secondary btn-sm" onClick={() => setShowScanner(true)}>📷 Scan Barcode</button>
           <button className="btn btn-secondary btn-sm" onClick={importExcel}>⬆ Import Excel</button>
           <button className="btn btn-secondary btn-sm" onClick={exportExcel}>⬇ Export Excel</button>
           <button className="btn btn-primary" onClick={openAdd}>+ Add Item</button>
@@ -180,6 +208,14 @@ export default function Inventory() {
         </div>
       </div>
 
+      {/* Camera Barcode Scanner Modal */}
+      {showScanner && (
+        <BarcodeScannerModal
+          onClose={() => setShowScanner(false)}
+          onScanSuccess={handleBarcodeScan}
+        />
+      )}
+
       {/* Add / Edit Modal */}
       {form && (
         <Modal
@@ -199,7 +235,11 @@ export default function Inventory() {
               <label className="form-label">Item Code</label>
               <input className="form-input" placeholder="Auto-generated" value={form.ItemCode} onChange={(e) => setForm({ ...form, ItemCode: e.target.value })} />
             </div>
-            <div className="form-group" style={{ gridColumn: 'span 2' }}>
+            <div className="form-group">
+              <label className="form-label">Barcode / QR Code</label>
+              <input className="form-input" placeholder="Scan or enter barcode" value={form.Barcode || ''} onChange={(e) => setForm({ ...form, Barcode: e.target.value })} />
+            </div>
+            <div className="form-group">
               <label className="form-label">Stock Name *</label>
               <select
                 className="form-select"
@@ -266,11 +306,11 @@ export default function Inventory() {
           </div>
           <div className="form-row form-row-3">
             <div className="form-group">
-              <label className="form-label">Purchase Price (PKR)</label>
+              <label className="form-label">Purchase Price ({getCurrencySymbol()})</label>
               <input className="form-input" type="number" min="0" step="0.01" placeholder="0.00" value={form.PurchasePrice} onChange={(e) => setForm({ ...form, PurchasePrice: e.target.value })} />
             </div>
             <div className="form-group">
-              <label className="form-label">Sale Price (PKR)</label>
+              <label className="form-label">Sale Price ({getCurrencySymbol()})</label>
               <input className="form-input" type="number" min="0" step="0.01" placeholder="0.00" value={form.SalePrice} onChange={(e) => setForm({ ...form, SalePrice: e.target.value })} />
             </div>
             <div className="form-group">
@@ -368,7 +408,7 @@ function InventoryHistoryModal({ item, onClose }) {
         </>
       }
     >
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 12, marginBottom: 16 }}>
+      <div className="kpi-grid-4" style={{ marginBottom: 16 }}>
         {[['Code', item.ItemCode || '—'], ['Size', item.PlateSize || '—'], ['Current Stock', `${data?.currentStock ?? item.CurrentStock} ${item.Unit || 'Pcs'}`], ['Events', data?.events?.length ?? '—']].map(([l, v]) => (
           <div key={l} style={{ background: 'var(--bg)', borderRadius: 6, padding: '10px 14px' }}>
             <div style={{ fontSize: 11, color: 'var(--text-muted)', fontWeight: 600 }}>{l}</div>

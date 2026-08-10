@@ -57,9 +57,9 @@ const DEFAULT_HTML_TEMPLATE = `<!DOCTYPE html>
       <table>
         <tr><td class="label">Invoice Number</td><td><strong>{InvoiceNumber}</strong></td></tr>
         <tr><td class="label">Invoice Date</td><td>{SaleDate}</td></tr>
-        <tr><td class="label">Invoice Total</td><td>PKR {Amount}</td></tr>
+        <tr><td class="label">Invoice Total</td><td>{Currency} {Amount}</td></tr>
         <tr><td class="label">Days Outstanding</td><td><strong>{Days} days</strong></td></tr>
-        <tr><td class="label">Balance Due</td><td class="amount">PKR {Balance}</td></tr>
+        <tr><td class="label">Balance Due</td><td class="amount">{Currency} {Balance}</td></tr>
       </table>
     </div>
     <p class="message">
@@ -87,8 +87,8 @@ const DEFAULT_BODY_TEMPLATE = `Dear {ClientName},
 
 This is a payment reminder for Invoice #{InvoiceNumber} dated {SaleDate}.
 
-Invoice Total : PKR {Amount}
-Balance Due   : PKR {Balance}
+Invoice Total : {Currency} {Amount}
+Balance Due   : {Currency} {Balance}
 Days Outstanding: {Days} days
 
 Your invoice has exceeded our standard credit period. Please arrange payment at your earliest convenience.
@@ -100,13 +100,15 @@ Kind regards,
 
 async function sendPaymentReminder(sale, config) {
   if (!sale.ClientEmail) return false;
+  const currency = config.CurrencySymbol || config.Currency || 'SAR';
   const vars = {
     ClientName:     sale.ClientName || 'Valued Customer',
     InvoiceNumber:  sale.InvoiceNumber || '',
     SaleDate:       sale.SaleDate ? new Date(sale.SaleDate).toLocaleDateString('en-US') : '',
-    Amount:         Number(sale.TotalAmount || 0).toLocaleString('en-PK', { minimumFractionDigits: 2 }),
-    Balance:        Number(sale.Balance || 0).toLocaleString('en-PK', { minimumFractionDigits: 2 }),
+    Amount:         Number(sale.TotalAmount || 0).toLocaleString('en-US', { minimumFractionDigits: 2 }),
+    Balance:        Number(sale.Balance || 0).toLocaleString('en-US', { minimumFractionDigits: 2 }),
     Days:           Math.floor((Date.now() - new Date(sale.SaleDate).getTime()) / 86400000),
+    Currency:       currency,
     CompanyName:    config.CompanyName || 'Printing Plates Inventory',
     SenderEmail:    FROM_EMAIL,
   };

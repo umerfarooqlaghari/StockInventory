@@ -42,7 +42,7 @@ export default function MasterData() {
           Manage categories, plate sizes, and stock names. These appear as dropdown options when adding inventory items.
         </p>
 
-        <div style={{ display: 'flex', gap: 8, marginBottom: 16 }}>
+        <div className="tabs-container">
           {TABS.map((t) => (
             <button
               key={t.id}

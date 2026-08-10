@@ -1,9 +1,10 @@
 import React, { useEffect, useState, useCallback } from 'react';
 import Modal from '../components/Modal.jsx';
 import StatusBadge from '../components/StatusBadge.jsx';
+import { formatCurrency } from '../utils/currency.js';
 
 const EMPTY = { Name: '', Phone: '', Email: '', Address: '', Notes: '' };
-const fmt = (n) => `PKR ${Number(n || 0).toLocaleString('en-PK', { minimumFractionDigits: 2 })}`;
+const fmt = (n) => formatCurrency(n);
 const fmtDate = (d) => d ? new Date(d).toLocaleDateString() : '—';
 
 export default function Clients() {

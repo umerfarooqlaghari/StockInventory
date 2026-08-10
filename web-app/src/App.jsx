@@ -24,6 +24,7 @@ const PAGES = {
 export default function App() {
   const [auth, setAuth] = useState(null); // null = not authenticated
   const [page, setPage] = useState('dashboard');
+  const [mobileOpen, setMobileOpen] = useState(false);
 
   if (!auth) {
     return <Auth onAuthenticated={setAuth} />;
@@ -32,10 +33,29 @@ export default function App() {
   const Page = PAGES[page] || Dashboard;
   return (
     <div className="app">
-      <Sidebar current={page} onNavigate={setPage} onLogout={() => {
-        window.api.logout();
-        setAuth(null);
-      }} />
+      {/* Mobile top navigation bar */}
+      <div className="mobile-navbar">
+        <button
+          className="mobile-hamburger"
+          onClick={() => setMobileOpen(true)}
+          aria-label="Open menu"
+        >
+          ☰
+        </button>
+        <span className="mobile-brand-title">Stock Inventory</span>
+      </div>
+
+      <Sidebar
+        current={page}
+        onNavigate={setPage}
+        mobileOpen={mobileOpen}
+        onCloseMobile={() => setMobileOpen(false)}
+        onLogout={() => {
+          window.api.logout();
+          setAuth(null);
+        }}
+      />
+
       <div className="main-content">
         <Page />
       </div>

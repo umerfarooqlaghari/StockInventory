@@ -1,6 +1,7 @@
 'use strict';
 const fs = require('fs');
 const PDFDocument = require('pdfkit');
+const zatcaService = require('./zatcaService');
 
 // ── helpers ────────────────────────────────────────────────────────────────────
 function t(doc, text, x, y, opts = {}) {
@@ -23,7 +24,21 @@ function statusColor(status) {
 }
 
 // ── main ───────────────────────────────────────────────────────────────────────
-function generateInvoicePdf(sale, config, logoPath) {
+async function generateInvoicePdf(sale, config, logoPath) {
+  let qrBuffer = null;
+  try {
+    const appUrl = process.env.APP_URL || process.env.BACKEND_URL || 'http://localhost:4000';
+    const qrString = sale._id ? `${appUrl}/api/zatca/verify/${sale._id}` : sale.ZatcaTlvBase64;
+    if (qrString) {
+      qrBuffer = await zatcaService.generateQrPngBuffer(qrString);
+    } else if (config?.Region === 'KSA' || Number(config?.TaxRate) > 0) {
+      const pipeline = await zatcaService.processZatcaPipeline(sale, config || {});
+      qrBuffer = pipeline.qrPngBuffer;
+    }
+  } catch (zErr) {
+    console.error('[pdf] ZATCA QR buffer prep error:', zErr);
+  }
+
   return new Promise((resolve, reject) => {
     const doc = new PDFDocument({ size: 'A4', margins: { top: 0, left: 0, right: 0, bottom: 0 }, autoFirstPage: true });
     const chunks = [];
@@ -189,13 +204,17 @@ function generateInvoicePdf(sale, config, logoPath) {
     // Left teal accent stripe on totals area
     doc.rect(totBoxX - 4, iy - 4, 3, 4 + 6 * totRH + 36).fill(teal);
 
+    const curr = config?.CurrencySymbol || config?.Currency || 'SAR';
+    const vatPercent = sale.TaxRate !== undefined ? sale.TaxRate : (config?.TaxRate !== undefined ? config.TaxRate : 15);
+    const vatLabel = vatPercent > 0 ? `VAT (${vatPercent}%)` : 'VAT / Tax';
+
     const totRows = [
-      { label: 'Subtotal',    value: `PKR ${fmt(sale.Subtotal)}`,       bold: false, lColor: gray,  vColor: black },
-      { label: 'Discount',    value: `− PKR ${fmt(sale.OverallDiscount)}`, bold: false, lColor: gray,  vColor: black },
-      { label: 'Tax',         value: `PKR ${fmt(sale.TaxAmount)}`,      bold: false, lColor: gray,  vColor: black },
-      { label: 'TOTAL',       value: `PKR ${fmt(sale.TotalAmount)}`,    bold: true,  lColor: navy,  vColor: navy,  divBefore: true, larger: true },
-      { label: 'Paid',        value: `PKR ${fmt(sale.PaidAmount)}`,     bold: false, lColor: gray,  vColor: '#16A34A' },
-      { label: 'BALANCE DUE', value: `PKR ${fmt(sale.Balance)}`,        bold: true,  lColor: red,   vColor: red,   divBefore: true, larger: true },
+      { label: 'Subtotal',    value: `${curr} ${fmt(sale.Subtotal)}`,       bold: false, lColor: gray,  vColor: black },
+      { label: 'Discount',    value: `− ${curr} ${fmt(sale.OverallDiscount)}`, bold: false, lColor: gray,  vColor: black },
+      { label: vatLabel,      value: `${curr} ${fmt(sale.TaxAmount)}`,      bold: false, lColor: gray,  vColor: black },
+      { label: 'TOTAL',       value: `${curr} ${fmt(sale.TotalAmount)}`,    bold: true,  lColor: navy,  vColor: navy,  divBefore: true, larger: true },
+      { label: 'Paid',        value: `${curr} ${fmt(sale.PaidAmount)}`,     bold: false, lColor: gray,  vColor: '#16A34A' },
+      { label: 'BALANCE DUE', value: `${curr} ${fmt(sale.Balance)}`,        bold: true,  lColor: red,   vColor: red,   divBefore: true, larger: true },
     ];
 
     totRows.forEach((r) => {
@@ -223,6 +242,24 @@ function generateInvoicePdf(sale, config, logoPath) {
       iy += 13;
       doc.font('Helvetica').fontSize(9.5).fillColor(black)
          .text(sale.Notes, ML, iy, { width: CW - 230 });
+    }
+
+    // ── 6.5. ZATCA QR Code & Stamp (KSA Region) ─────────────────────────────────
+    if (qrBuffer) {
+      try {
+        const qrY = PH - 145;
+        doc.image(qrBuffer, ML, qrY, { fit: [85, 85] });
+
+        doc.font('Helvetica-Bold').fontSize(8).fillColor(teal)
+           .text('ZATCA E-INVOICING COMPLIANT', ML + 95, qrY + 10, { lineBreak: false });
+
+        doc.font('Helvetica').fontSize(7.5).fillColor(gray)
+           .text(`VAT No: ${config?.SellerVatNumber || config?.VATRegistrationNumber || '300000000000003'}`, ML + 95, qrY + 24, { lineBreak: false })
+           .text(`Status: ${sale.ZatcaStatus || 'CLEARED'} (Phase-2 Standard)`, ML + 95, qrY + 36, { lineBreak: false })
+           .text(`UUID: ${(sale.ZatcaUUID || 'ZATCA-E-INVOICE').substring(0, 28)}…`, ML + 95, qrY + 48, { lineBreak: false });
+      } catch (qrErr) {
+        console.error('[pdf] Error drawing ZATCA QR:', qrErr);
+      }
     }
 
     // ── 7. Footer ─────────────────────────────────────────────────────────────────

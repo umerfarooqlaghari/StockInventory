@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from 'react';
+import { SUPPORTED_CURRENCIES } from '../utils/currency.js';
 
 export default function Settings() {
   const [config, setConfig] = useState(null);
@@ -27,7 +28,10 @@ export default function Settings() {
       ...config,
       CreditDays:       parseInt(config.CreditDays)       || 45,
       AlertDays:        parseInt(config.AlertDays)         || 48,
-      TaxRate:          parseFloat(config.TaxRate)         || 0,
+      TaxRate:          parseFloat(config.TaxRate) >= 0    ? parseFloat(config.TaxRate) : 15,
+      Region:           config.Region                     || 'KSA',
+      Currency:         config.Currency                   || 'SAR',
+      CurrencySymbol:   config.CurrencySymbol             || config.Currency || 'SAR',
       LowStockThreshold: parseInt(config.LowStockThreshold) || 10,
       OwnerEmails: (config.OwnerEmails || []).map((e) => String(e).trim()).filter(Boolean),
       OwnerDailyReminderEnabled: !!config.OwnerDailyReminderEnabled,
@@ -158,7 +162,7 @@ export default function Settings() {
       </div>
 
       <div className="page-body">
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 20 }}>
+        <div className="settings-grid">
           {/* Company */}
           <div className="card card-body">
             <h3 style={{ fontWeight: 700, fontSize: 14, marginBottom: 16 }}>Company Information</h3>
@@ -184,6 +188,139 @@ export default function Settings() {
             <div className="form-group"><label className="form-label">Company Name</label><input className="form-input" value={config.CompanyName || ''} onChange={(e) => set('CompanyName', e.target.value)} /></div>
             <div className="form-group"><label className="form-label">Phone Number</label><input className="form-input" value={config.CompanyPhone || ''} onChange={(e) => set('CompanyPhone', e.target.value)} /></div>
             <div className="form-group"><label className="form-label">Address</label><textarea className="form-textarea" value={config.CompanyAddress || ''} onChange={(e) => set('CompanyAddress', e.target.value)} /></div>
+
+            {/* Region, Currency & VAT */}
+            <div style={{ borderTop: '1px solid var(--border)', marginTop: 20, paddingTop: 16 }}>
+              <h4 style={{ fontWeight: 700, fontSize: 13, marginBottom: 12 }}>Region, Currency &amp; Regional VAT</h4>
+              <div className="form-group">
+                <label className="form-label">Country / Region</label>
+                <select
+                  className="form-input"
+                  value={config.Region || 'KSA'}
+                  onChange={(e) => {
+                    const reg = e.target.value;
+                    const presets = {
+                      KSA: { currency: 'SAR', symbol: 'SAR', vat: 15 },
+                      UAE: { currency: 'AED', symbol: 'AED', vat: 5 },
+                      QAT: { currency: 'QAR', symbol: 'QAR', vat: 0 },
+                      KWT: { currency: 'KWD', symbol: 'KWD', vat: 0 },
+                      BHR: { currency: 'BHD', symbol: 'BHD', vat: 10 },
+                      OMN: { currency: 'OMR', symbol: 'OMR', vat: 5 },
+                      UK:  { currency: 'GBP', symbol: '£', vat: 20 },
+                      USA: { currency: 'USD', symbol: '$', vat: 0 },
+                    };
+                    const p = presets[reg];
+                    if (p) {
+                      setConfig({
+                        ...config,
+                        Region: reg,
+                        Currency: p.currency,
+                        CurrencySymbol: p.symbol,
+                        TaxRate: p.vat,
+                      });
+                    } else {
+                      set('Region', reg);
+                    }
+                  }}
+                >
+                  <option value="KSA">Saudi Arabia (KSA) - 15% VAT</option>
+                  <option value="UAE">United Arab Emirates (UAE) - 5% VAT</option>
+                  <option value="QAT">Qatar - 0% VAT</option>
+                  <option value="KWT">Kuwait - 0% VAT</option>
+                  <option value="BHR">Bahrain - 10% VAT</option>
+                  <option value="OMN">Oman - 5% VAT</option>
+                  <option value="UK">United Kingdom (UK) - 20% VAT</option>
+                  <option value="USA">United States (USA) - 0% VAT</option>
+                  <option value="OTHER">Other Region (Custom)</option>
+                </select>
+              </div>
+
+              <div className="form-group">
+                <label className="form-label">Currency</label>
+                <select
+                  className="form-input"
+                  value={config.Currency || 'SAR'}
+                  onChange={(e) => {
+                    const code = e.target.value;
+                    const match = SUPPORTED_CURRENCIES.find(c => c.code === code) || SUPPORTED_CURRENCIES[0];
+                    setConfig({
+                      ...config,
+                      Currency: match.code,
+                      CurrencySymbol: match.symbol,
+                    });
+                  }}
+                >
+                  {SUPPORTED_CURRENCIES.map((c) => (
+                    <option key={c.code} value={c.code}>{c.label}</option>
+                  ))}
+                </select>
+              </div>
+
+              <div className="form-group">
+                <label className="form-label">VAT Rate (%) *</label>
+                <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
+                  <input
+                    type="number"
+                    step="0.1"
+                    min="0"
+                    className="form-input"
+                    value={config.TaxRate !== undefined ? config.TaxRate : 15}
+                    onChange={(e) => set('TaxRate', e.target.value)}
+                    style={{ flex: 1 }}
+                  />
+                  <button type="button" className="btn btn-secondary btn-sm" onClick={() => set('TaxRate', 15)}>Set KSA 15%</button>
+                  <button type="button" className="btn btn-secondary btn-sm" onClick={() => set('TaxRate', 0)}>Set 0%</button>
+                </div>
+                <p style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 6 }}>Used for calculating VAT breakdown on sales, purchases, and invoices.</p>
+              </div>
+
+              {/* ZATCA Tax Registration */}
+              <div className="form-group" style={{ background: 'var(--bg)', padding: 14, borderRadius: 8, border: '1px solid var(--border)' }}>
+                <label className="form-label" style={{ color: 'var(--blue)', fontSize: 13, fontWeight: 700 }}>
+                  🇸🇦 Seller VAT Registration Number (ZATCA KSA Mandatory) *
+                </label>
+                <input
+                  className="form-input"
+                  placeholder="e.g. 300123456700003"
+                  value={config.SellerVatNumber || config.VATRegistrationNumber || ''}
+                  onChange={(e) => {
+                    set('SellerVatNumber', e.target.value);
+                    set('VATRegistrationNumber', e.target.value);
+                  }}
+                  style={{ fontWeight: 600, letterSpacing: '0.05em' }}
+                />
+                <p style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 4 }}>
+                  ZATCA Requirement (BR-KSA-40): 15-digit Tax Identification Number starting and ending with digit 3. Required for all KSA electronic invoices and QR code generation.
+                </p>
+              </div>
+
+              {/* ZATCA Phase-2 KSA Credentials */}
+              <div style={{ borderTop: '1px solid var(--border)', marginTop: 16, paddingTop: 16 }}>
+                <h4 style={{ fontWeight: 700, fontSize: 13, marginBottom: 10, color: 'var(--text)' }}>
+                  ZATCA National Address &amp; Commercial Reg. (CRN)
+                </h4>
+                <div className="form-row form-row-2">
+                  <div className="form-group">
+                    <label className="form-label">Commercial Registration (CRN)</label>
+                    <input className="form-input" placeholder="1010000000" value={config.CRN || ''} onChange={(e) => set('CRN', e.target.value)} />
+                  </div>
+                  <div className="form-group">
+                    <label className="form-label">Building Number (4 Digits)</label>
+                    <input className="form-input" placeholder="1234" value={config.BuildingNumber || ''} onChange={(e) => set('BuildingNumber', e.target.value)} />
+                  </div>
+                </div>
+                <div className="form-row form-row-2">
+                  <div className="form-group">
+                    <label className="form-label">Street Name &amp; District</label>
+                    <input className="form-input" placeholder="King Fahd Rd, Olaya" value={config.StreetName || ''} onChange={(e) => set('StreetName', e.target.value)} />
+                  </div>
+                  <div className="form-group">
+                    <label className="form-label">Postal Code &amp; City</label>
+                    <input className="form-input" placeholder="12211 Riyadh" value={config.PostalCode || ''} onChange={(e) => set('PostalCode', e.target.value)} />
+                  </div>
+                </div>
+              </div>
+            </div>
 
             <div style={{ borderTop: '1px solid var(--border)', marginTop: 16, paddingTop: 16 }}>
               <h4 style={{ fontWeight: 700, fontSize: 13, marginBottom: 4 }}>Internal Payment Reminders</h4>
@@ -285,7 +422,7 @@ export default function Settings() {
           </div>
 
           {/* Email Template */}
-          <div className="card card-body" style={{ gridColumn: 'span 2' }}>
+          <div className="card card-body col-span-2">
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 4 }}>
               <h3 style={{ fontWeight: 700, fontSize: 14 }}>Email Alert Template</h3>
               <button
@@ -341,7 +478,7 @@ export default function Settings() {
           </div>
 
           {/* Excel Import */}
-          <div className="card card-body" style={{ gridColumn: 'span 2' }}>
+          <div className="card card-body col-span-2">
             <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: 4 }}>
               <h3 style={{ fontWeight: 700, fontSize: 14 }}>Data Migration — Excel Import</h3>
               <div style={{ display: 'flex', gap: 8 }}>

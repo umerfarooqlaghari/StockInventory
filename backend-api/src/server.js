@@ -49,13 +49,13 @@ app.get('/api/health', (_req, res) => res.json({ status: 'ok' }));
 // Generic RPC proxy — maps POST /api/rpc/:method → dbService[method](...args)
 // Tenant context is already set by authMiddleware.
 const ALLOWED_METHODS = new Set([
-  'getConfig', 'saveConfig',
-  'getAllInventory', 'getLowStock', 'createItem', 'updateItem', 'deleteItem',
+  'getConfig', 'saveConfig', 'getVatConfig', 'updateVatConfig',
+  'getAllInventory', 'getItemByBarcode', 'getLowStock', 'createItem', 'updateItem', 'deleteItem',
   'updateStock', 'getInventoryHistory', 'rebuildInventoryHistory',
   'getAllClients', 'createClient', 'updateClient', 'deleteClient',
   'getClientLedger', 'getClientBalance',
   'getAllSales', 'createSale', 'updateSale', 'recordPayment',
-  'markSaleReturned', 'deleteSale',
+  'markSaleReturned', 'deleteSale', 'getZatcaXml', 'getZatcaQr',
   'getTotalSales', 'getTotalProfit', 'getTotalOutstanding',
   'getOverdueSales', 'getPendingAlerts', 'markAlertSent',
   'getPendingPaymentSales', 'markOwnerDigestSent',
@@ -66,6 +66,102 @@ const ALLOWED_METHODS = new Set([
   'createMasterDataEntry', 'updateMasterDataEntry', 'deleteMasterDataEntry',
   'getDashboardMetrics',
 ]);
+
+// ─── VAT API ROUTES ────────────────────────────────────────────────────────
+app.get('/api/vat', authMiddleware, async (_req, res) => {
+  try {
+    const data = await dbService.getVatConfig();
+    return res.json({ ok: true, vat: data });
+  } catch (err) {
+    return res.status(500).json({ error: err.message });
+  }
+});
+
+app.put('/api/vat', authMiddleware, async (req, res) => {
+  try {
+    const { vatRate, region } = req.body;
+    const data = await dbService.updateVatConfig(vatRate, region);
+    return res.json({ ok: true, vat: data });
+  } catch (err) {
+    return res.status(500).json({ error: err.message });
+  }
+});
+
+// ─── ZATCA UBL 2.1 XML DOWNLOAD ROUTE ────────────────────────────────────────
+app.get('/api/zatca/xml/:id', authMiddleware, async (req, res) => {
+  try {
+    const { xml, invoiceNumber } = await dbService.getZatcaXml(req.params.id);
+    res.setHeader('Content-Type', 'application/xml');
+    res.setHeader('Content-Disposition', `attachment; filename="ZATCA_${invoiceNumber || 'Invoice'}.xml"`);
+    return res.send(xml);
+  } catch (err) {
+    return res.status(500).send(`ZATCA XML Error: ${err.message}`);
+  }
+});
+
+// ─── ZATCA PUBLIC VERIFICATION PORTAL ROUTE ──────────────────────────────────
+app.get('/api/zatca/verify/:id', async (req, res) => {
+  try {
+    const sale = await dbService.getSaleById(req.params.id);
+    if (!sale) return res.status(404).send('<h2 style="font-family:sans-serif;text-align:center;margin-top:50px;">ZATCA Verification Error: Invoice Not Found</h2>');
+
+    const html = `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>ZATCA E-Invoice Verification — ${sale.InvoiceNumber}</title>
+  <style>
+    body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: #F8FAFC; color: #0F172A; margin: 0; padding: 20px; display: flex; justify-content: center; min-height: 100vh; align-items: center; }
+    .cert-card { background: #FFFFFF; max-width: 520px; width: 100%; border-radius: 16px; box-shadow: 0 10px 25px rgba(0,0,0,0.08); overflow: hidden; border: 1px solid #E2E8F0; }
+    .cert-header { background: #0F2040; color: #FFFFFF; padding: 24px; text-align: center; }
+    .cert-badge { display: inline-block; background: #10B981; color: #FFF; font-weight: 700; font-size: 12px; padding: 4px 12px; border-radius: 20px; text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 8px; }
+    .cert-body { padding: 24px; }
+    .info-row { display: flex; justify-content: space-between; padding: 10px 0; border-bottom: 1px solid #F1F5F9; font-size: 14px; }
+    .info-label { color: #64748B; font-weight: 500; }
+    .info-val { font-weight: 600; color: #0F172A; text-align: right; }
+    .total-row { background: #F0FDF4; border-radius: 8px; padding: 14px; margin-top: 16px; display: flex; justify-content: space-between; align-items: center; }
+    .total-val { font-size: 20px; font-weight: 800; color: #15803D; }
+    .footer { text-align: center; padding: 16px; font-size: 11px; color: #94A3B8; border-top: 1px solid #F1F5F9; background: #FAFAFA; }
+  </style>
+</head>
+<body>
+  <div class="cert-card">
+    <div class="cert-header">
+      <div class="cert-badge">🟢 ZATCA Official ${sale.ZatcaStatus || 'CLEARED'}</div>
+      <h2 style="margin:6px 0 0; font-size: 20px;">Saudi Arabia E-Invoice Verification</h2>
+      <p style="margin:4px 0 0; opacity: 0.75; font-size: 13px;">Zakat, Tax and Customs Authority Standard</p>
+    </div>
+    <div class="cert-body">
+      <div class="info-row"><span class="info-label">Invoice Number</span><span class="info-val" style="font-family:monospace">${sale.InvoiceNumber}</span></div>
+      <div class="info-row"><span class="info-label">Client Name</span><span class="info-val">${sale.ClientName || 'Cash Client'}</span></div>
+      <div class="info-row"><span class="info-label">Issue Date</span><span class="info-val">${new Date(sale.SaleDate).toLocaleDateString()}</span></div>
+      <div class="info-row"><span class="info-label">Subtotal</span><span class="info-val">${Number(sale.Subtotal || 0).toFixed(2)} SAR</span></div>
+      <div class="info-row"><span class="info-label">VAT Rate &amp; Amount</span><span class="info-val">15% (${Number(sale.TaxAmount || 0).toFixed(2)} SAR)</span></div>
+      
+      <div class="total-row">
+        <span style="font-weight:700; color:#166534">Total Amount</span>
+        <span class="total-val">${Number(sale.TotalAmount || 0).toFixed(2)} SAR</span>
+      </div>
+
+      <div style="margin-top: 20px; font-size: 11px; color: #64748B; font-family: monospace; word-break: break-all;">
+        <strong>UUID:</strong> ${sale.ZatcaUUID || 'N/A'}<br>
+        <strong>SHA-256 Hash:</strong> ${sale.ZatcaXmlHash || 'Verified'}<br>
+        ${sale.ZatcaCryptographicStamp ? `<strong>Cryptographic Stamp:</strong> ${sale.ZatcaCryptographicStamp}` : ''}
+      </div>
+    </div>
+    <div class="footer">
+      Verified by ZATCA E-Invoicing System · Kingdom of Saudi Arabia
+    </div>
+  </div>
+</body>
+</html>`;
+    res.setHeader('Content-Type', 'text/html');
+    return res.send(html);
+  } catch (err) {
+    return res.status(500).send(`Verification Error: ${err.message}`);
+  }
+});
 
 app.post('/api/rpc/:method', authMiddleware, async (req, res) => {
   const { method } = req.params;

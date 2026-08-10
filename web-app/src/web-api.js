@@ -78,12 +78,14 @@ const webApi = {
     }
     return res;
   },
-  register: (email, password, companyName) => {
+  register: (email, password, companyName, region, currency, currencySymbol, vatRate) => {
     return request('/auth/register', {
       method: 'POST',
-      body: JSON.stringify({ email, password, companyName }),
+      body: JSON.stringify({ email, password, companyName, region, currency, currencySymbol, vatRate }),
     });
   },
+  getVatConfig: () => rpc('getVatConfig'),
+  updateVatConfig: (vatRate, region) => rpc('updateVatConfig', [vatRate, region]),
   logout: async () => {
     localStorage.removeItem('jwt_token');
     return { ok: true };
@@ -96,6 +98,7 @@ const webApi = {
 
   // Inventory
   getInventory: (search) => rpc('getAllInventory', [search]),
+  getItemByBarcode: (barcode) => rpc('getItemByBarcode', [barcode]),
   getLowStock: () => rpc('getLowStock'),
   createItem: (item) => rpc('createItem', [item]),
   updateItem: (item) => rpc('updateItem', [item]),
@@ -238,7 +241,7 @@ const webApi = {
       ok: true,
       data: {
         subject: 'Payment Reminder - Invoice {InvoiceNumber}',
-        body: `Dear {ClientName},\n\nThis is a reminder that Invoice #{InvoiceNumber} dated {SaleDate} for PKR {Amount} is now {Days} days outstanding.\n\nOutstanding Balance: PKR {Balance}\n\nPlease arrange payment at your earliest convenience.\n\nRegards,\n{CompanyName}`
+        body: `Dear {ClientName},\n\nThis is a reminder that Invoice #{InvoiceNumber} dated {SaleDate} for {Currency} {Amount} is now {Days} days outstanding.\n\nOutstanding Balance: {Currency} {Balance}\n\nPlease arrange payment at your earliest convenience.\n\nRegards,\n{CompanyName}`
       }
     };
   },

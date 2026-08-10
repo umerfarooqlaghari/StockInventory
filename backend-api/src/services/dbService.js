@@ -12,6 +12,7 @@
  */
 const { ObjectId } = require('mongodb');
 const { getTenantDb } = require('./tenantContext');
+const zatcaService = require('./zatcaService');
 
 function requireDb() {
   const db = getTenantDb();
@@ -116,7 +117,14 @@ function oid(id) { try { return new ObjectId(id); } catch { return id; } }
 
 async function getConfig() {
   const cfg = await col('configuration').findOne({});
-  if (cfg) return cfg;
+  if (cfg) {
+    // Fill in default currency/region properties if missing on legacy configs
+    if (!cfg.Region) cfg.Region = 'KSA';
+    if (!cfg.Currency) cfg.Currency = 'SAR';
+    if (!cfg.CurrencySymbol) cfg.CurrencySymbol = cfg.Currency || 'SAR';
+    if (cfg.TaxRate === undefined) cfg.TaxRate = 15;
+    return cfg;
+  }
   const defaults = {
     CreditDays: 45,
     AlertDays: 48,
@@ -124,11 +132,14 @@ async function getConfig() {
     CompanyPhone: '',
     CompanyAddress: '',
     CompanyLogo: '',
-    TaxRate: 0,
+    Region: 'KSA',
+    Currency: 'SAR',
+    CurrencySymbol: 'SAR',
+    TaxRate: 15,
     LowStockThreshold: 10,
     SesFromEmail: 'info@alpha-devs.cloud',
     EmailSubjectTemplate: 'Payment Reminder - Invoice {InvoiceNumber}',
-    EmailBodyTemplate: `Dear {ClientName},\n\nThis is a reminder that Invoice #{InvoiceNumber} dated {SaleDate} for PKR {Amount} is now {Days} days outstanding.\n\nOutstanding Balance: PKR {Balance}\n\nPlease arrange payment at your earliest convenience.\n\nRegards,\n{CompanyName}`,
+    EmailBodyTemplate: `Dear {ClientName},\n\nThis is a reminder that Invoice #{InvoiceNumber} dated {SaleDate} for {Currency} {Amount} is now {Days} days outstanding.\n\nOutstanding Balance: {Currency} {Balance}\n\nPlease arrange payment at your earliest convenience.\n\nRegards,\n{CompanyName}`,
     PlateSizes: ['12x18', '18x24', '20x30', '25x35', '30x40', '32x45'],
     OwnerEmails: [],
     OwnerDailyReminderEnabled: false,
@@ -148,6 +159,24 @@ async function saveConfig(config) {
   return data;
 }
 
+async function getVatConfig() {
+  const cfg = await getConfig();
+  return {
+    region: cfg.Region || 'KSA',
+    currency: cfg.Currency || 'SAR',
+    currencySymbol: cfg.CurrencySymbol || cfg.Currency || 'SAR',
+    vatRate: cfg.TaxRate !== undefined ? cfg.TaxRate : 15,
+  };
+}
+
+async function updateVatConfig(vatRate, region) {
+  const cfg = await getConfig();
+  if (vatRate !== undefined) cfg.TaxRate = parseFloat(vatRate);
+  if (region) cfg.Region = region;
+  await saveConfig(cfg);
+  return getVatConfig();
+}
+
 // ─── INVENTORY ───────────────────────────────────────────────────────────────
 
 async function getAllInventory(search) {
@@ -156,12 +185,27 @@ async function getAllInventory(search) {
         $or: [
           { StockName: { $regex: search, $options: 'i' } },
           { ItemCode: { $regex: search, $options: 'i' } },
+          { Barcode: { $regex: search, $options: 'i' } },
           { PlateSize: { $regex: search, $options: 'i' } },
           { Category: { $regex: search, $options: 'i' } },
         ],
       }
     : {};
   return col('inventory_items').find(query).sort({ StockName: 1 }).toArray();
+}
+
+async function getItemByBarcode(barcode) {
+  if (!barcode) return null;
+  const clean = String(barcode).trim();
+  const item = await col('inventory_items').findOne({
+    $or: [
+      { Barcode: clean },
+      { ItemCode: clean },
+      { Barcode: { $regex: `^${clean}$`, $options: 'i' } },
+      { ItemCode: { $regex: `^${clean}$`, $options: 'i' } },
+    ],
+  });
+  return item;
 }
 
 async function getLowStock(threshold = 10) {
@@ -512,6 +556,14 @@ async function getAllSales(search, status) {
   return col('sales').find(query).sort({ SaleDate: -1 }).toArray();
 }
 
+async function getSaleById(id) {
+  try {
+    return await col('sales').findOne({ _id: oid(id) });
+  } catch {
+    return null;
+  }
+}
+
 async function createSale(sale) {
   const cfg = await getConfig();
   sale.InvoiceNumber = await generateInvoiceNumber();
@@ -546,6 +598,22 @@ async function createSale(sale) {
     : [];
   delete sale.InitialPayment; // don't store separately
 
+  // Process ZATCA E-Invoicing Pipeline for KSA region
+  if (cfg.Region === 'KSA' || Number(cfg.TaxRate) > 0) {
+    try {
+      const zatcaResult = await zatcaService.processZatcaPipeline(sale, cfg);
+      sale.ZatcaUUID = zatcaResult.uuid;
+      sale.ZatcaStatus = zatcaResult.zatcaStatus;
+      sale.ZatcaTlvBase64 = zatcaResult.tlvBase64;
+      sale.ZatcaXmlHash = zatcaResult.xmlHash;
+      sale.ZatcaXml = zatcaResult.xmlString;
+      sale.ZatcaReportedAt = zatcaResult.reportedAt;
+      sale.ZatcaCryptographicStamp = zatcaResult.cryptographicStamp;
+    } catch (zErr) {
+      console.error('[dbService] ZATCA Pipeline Error:', zErr);
+    }
+  }
+
   const result = await col('sales').insertOne(sale);
   const saved = { ...sale, _id: result.insertedId };
 
@@ -565,6 +633,30 @@ async function createSale(sale) {
   }
 
   return saved;
+}
+
+async function getZatcaXml(saleId) {
+  const sale = await col('sales').findOne({ _id: oid(saleId) });
+  if (!sale) throw new Error('Sale invoice not found');
+  const cfg = await getConfig();
+  const uuid = sale.ZatcaUUID || zatcaService.generateUuid();
+  const xml = sale.ZatcaXml || zatcaService.buildZatcaXml(sale, cfg, uuid, Boolean(sale.ClientVatNumber));
+  return { xml, invoiceNumber: sale.InvoiceNumber, uuid };
+}
+
+async function getZatcaQr(saleId) {
+  const sale = await col('sales').findOne({ _id: oid(saleId) });
+  if (!sale) throw new Error('Sale invoice not found');
+  let tlv = sale.ZatcaTlvBase64;
+  if (!tlv) {
+    const cfg = await getConfig();
+    const pipeline = await zatcaService.processZatcaPipeline(sale, cfg);
+    tlv = pipeline.tlvBase64;
+  }
+  const appUrl = process.env.APP_URL || process.env.BACKEND_URL || 'http://localhost:4000';
+  const qrContent = sale._id ? `${appUrl}/api/zatca/verify/${sale._id}` : tlv;
+  const dataUrl = await zatcaService.getZatcaQrDataUrl(qrContent);
+  return { dataUrl, qrContent, tlvBase64: tlv, uuid: sale.ZatcaUUID, status: sale.ZatcaStatus || 'CLEARED' };
 }
 
 async function updateSale(sale) {
@@ -1204,10 +1296,10 @@ async function getDashboardMetrics() {
 module.exports = {
   ensureIndexes,
   ensureMasterDataSeed,
-  getConfig, saveConfig,
-  getAllInventory, getLowStock, createItem, updateItem, deleteItem, updateStock, getInventoryHistory, rebuildInventoryHistory,
+  getConfig, saveConfig, getVatConfig, updateVatConfig,
+  getAllInventory, getItemByBarcode, getLowStock, createItem, updateItem, deleteItem, updateStock, getInventoryHistory, rebuildInventoryHistory,
   getAllClients, createClient, updateClient, deleteClient, getClientLedger, getClientBalance,
-  getAllSales, createSale, updateSale, recordPayment, markSaleReturned, deleteSale,
+  getAllSales, getSaleById, createSale, updateSale, recordPayment, markSaleReturned, deleteSale, getZatcaXml, getZatcaQr,
   getTotalSales, getTotalProfit, getTotalOutstanding, getOverdueSales, getPendingAlerts, markAlertSent,
   getPendingPaymentSales, markOwnerDigestSent,
   getAllPurchases, createPurchase, updatePurchase, updatePurchaseStatus, deletePurchase, getPurchaseSummary,

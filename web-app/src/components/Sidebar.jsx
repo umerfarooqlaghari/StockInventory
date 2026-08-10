@@ -11,7 +11,7 @@ const NAV = [
   { id: 'settings', label: 'Settings', icon: <SettingsIcon /> },
 ];
 
-export default function Sidebar({ current, onNavigate, onLogout }) {
+export default function Sidebar({ current, onNavigate, onLogout, mobileOpen, onCloseMobile }) {
   const [companyName, setCompanyName] = useState('Stock Inventory');
   const [logoSrc, setLogoSrc] = useState(null);
 
@@ -22,26 +22,36 @@ export default function Sidebar({ current, onNavigate, onLogout }) {
     window.api.getLogoSrc().then((res) => { if (res && res.ok && res.data) setLogoSrc(res.data); });
   }, []);
 
+  function handleNav(id) {
+    onNavigate(id);
+    if (onCloseMobile) onCloseMobile();
+  }
+
   return (
-    <div className="sidebar">
-      <div className="sidebar-brand">
-        {logoSrc && <img src={logoSrc} alt="" className="sidebar-logo" />}
-        <div className="sidebar-brand-text">
-          <h2>{companyName}</h2>
-          <p>Management System</p>
+    <>
+      {mobileOpen && <div className="sidebar-backdrop" onClick={onCloseMobile} />}
+      <div className={`sidebar ${mobileOpen ? 'mobile-open' : ''}`}>
+        <div className="sidebar-brand">
+          {logoSrc && <img src={logoSrc} alt="" className="sidebar-logo" />}
+          <div className="sidebar-brand-text">
+            <h2>{companyName}</h2>
+            <p>Management System</p>
+          </div>
+          {onCloseMobile && (
+            <button className="mobile-close-btn" onClick={onCloseMobile} aria-label="Close sidebar">✕</button>
+          )}
         </div>
-      </div>
-      <nav className="sidebar-nav">
-        {NAV.map((item) => (
-          <button
-            key={item.id}
-            className={`nav-item${current === item.id ? ' active' : ''}`}
-            onClick={() => onNavigate(item.id)}
-          >
-            {item.icon}
-            {item.label}
-          </button>
-        ))}
+        <nav className="sidebar-nav">
+          {NAV.map((item) => (
+            <button
+              key={item.id}
+              className={`nav-item${current === item.id ? ' active' : ''}`}
+              onClick={() => handleNav(item.id)}
+            >
+              {item.icon}
+              {item.label}
+            </button>
+          ))}
         <button className="nav-item logout-btn" onClick={onLogout} style={{ marginTop: 'auto', color: '#ef4444' }}>
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
           Logout
@@ -49,6 +59,7 @@ export default function Sidebar({ current, onNavigate, onLogout }) {
       </nav>
       <div className="sidebar-footer">v1.0.0 · Alpha Dev</div>
     </div>
+  </>
   );
 }
 
