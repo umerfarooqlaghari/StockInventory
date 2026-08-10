@@ -39,6 +39,8 @@ contextBridge.exposeInMainWorld('api', {
   markSaleReturned: (saleId) => ipcRenderer.invoke('sales:markReturned', saleId),
   notifySaleNow: (saleId) => ipcRenderer.invoke('sales:notifyNow', saleId),
   generateInvoicePdf: (saleId) => ipcRenderer.invoke('sales:generatePdf', saleId),
+  getZatcaQr: (saleId) => ipcRenderer.invoke('sales:getZatcaQr', saleId),
+  getZatcaXml: (saleId) => ipcRenderer.invoke('sales:getZatcaXml', saleId),
   deleteSale: (id) => ipcRenderer.invoke('sales:delete', id),
   exportSalesExcel: () => ipcRenderer.invoke('sales:exportExcel'),
 
