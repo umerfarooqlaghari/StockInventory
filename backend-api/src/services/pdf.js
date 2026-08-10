@@ -24,10 +24,10 @@ function statusColor(status) {
 }
 
 // ── main ───────────────────────────────────────────────────────────────────────
-async function generateInvoicePdf(sale, config, logoPath) {
+async function generateInvoicePdf(sale, config, logoPath, baseUrl) {
   let qrBuffer = null;
   try {
-    const appUrl = process.env.APP_URL || process.env.BACKEND_URL || 'http://localhost:4000';
+    const appUrl = baseUrl || process.env.APP_URL || process.env.BACKEND_URL || process.env.PUBLIC_URL || config?.AppUrl || 'http://localhost:4000';
     const qrString = sale._id ? `${appUrl}/api/zatca/verify/${sale._id}` : sale.ZatcaTlvBase64;
     if (qrString) {
       qrBuffer = await zatcaService.generateQrPngBuffer(qrString);
@@ -244,19 +244,11 @@ async function generateInvoicePdf(sale, config, logoPath) {
          .text(sale.Notes, ML, iy, { width: CW - 230 });
     }
 
-    // ── 6.5. ZATCA QR Code & Stamp (KSA Region) ─────────────────────────────────
+    // ── 6.5. ZATCA QR Code (KSA Region) ─────────────────────────────────
     if (qrBuffer) {
       try {
-        const qrY = PH - 145;
-        doc.image(qrBuffer, ML, qrY, { fit: [85, 85] });
-
-        doc.font('Helvetica-Bold').fontSize(8).fillColor(teal)
-           .text('ZATCA E-INVOICING COMPLIANT', ML + 95, qrY + 10, { lineBreak: false });
-
-        doc.font('Helvetica').fontSize(7.5).fillColor(gray)
-           .text(`VAT No: ${config?.SellerVatNumber || config?.VATRegistrationNumber || '300000000000003'}`, ML + 95, qrY + 24, { lineBreak: false })
-           .text(`Status: ${sale.ZatcaStatus || 'CLEARED'} (Phase-2 Standard)`, ML + 95, qrY + 36, { lineBreak: false })
-           .text(`UUID: ${(sale.ZatcaUUID || 'ZATCA-E-INVOICE').substring(0, 28)}…`, ML + 95, qrY + 48, { lineBreak: false });
+        const qrY = PH - 142;
+        doc.image(qrBuffer, ML, qrY, { fit: [80, 80] });
       } catch (qrErr) {
         console.error('[pdf] Error drawing ZATCA QR:', qrErr);
       }

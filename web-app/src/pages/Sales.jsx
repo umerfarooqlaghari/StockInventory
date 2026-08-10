@@ -256,8 +256,8 @@ export default function Sales() {
                     <img src={zatcaQrDataUrl} alt="ZATCA Scannable QR Code" style={{ width: 115, height: 115, display: 'block' }} />
                   </div>
                 )}
-                <div style={{ flex: 1, minWidth: 220 }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8, flexWrap: 'wrap', gap: 8 }}>
+                <div style={{ flex: 1, minWidth: 200, display: 'flex', flexDirection: 'column', gap: 10 }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 8 }}>
                     <span style={{ fontWeight: 700, fontSize: 13, color: '#15803D' }}>
                       🟢 ZATCA E-Invoicing Phase-2 ({detail.ZatcaStatus || 'CLEARED'})
                     </span>
@@ -271,14 +271,6 @@ export default function Sales() {
                     >
                       📜 Download ZATCA UBL 2.1 XML
                     </button>
-                  </div>
-                  <div style={{ fontSize: 11, color: '#166534', fontFamily: 'monospace', display: 'flex', flexDirection: 'column', gap: 3 }}>
-                    <div>UUID: {detail.ZatcaUUID || 'Generated on-demand'}</div>
-                    <div>Hash (SHA-256): {detail.ZatcaXmlHash || 'Verified'}</div>
-                    {detail.ZatcaCryptographicStamp && <div>Stamp: {detail.ZatcaCryptographicStamp}</div>}
-                    <div style={{ marginTop: 4, fontWeight: 600, color: '#047857', fontSize: 11 }}>
-                      ✓ Scannable ZATCA KSA-14 QR Code generated locally with 15-digit Seller VAT No &amp; Timestamp.
-                    </div>
                   </div>
                 </div>
               </div>

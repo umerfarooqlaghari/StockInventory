@@ -240,7 +240,10 @@ app.get('/api/sales/:saleId/pdf', authMiddleware, async (req, res) => {
       }
     }
     
-    const pdfBuf = await generateInvoicePdf(sale, config, logoBuffer);
+    const proto = req.headers['x-forwarded-proto'] || req.protocol || 'http';
+    const host = req.headers['x-forwarded-host'] || req.get('host');
+    const baseUrl = host ? `${proto}://${host}` : null;
+    const pdfBuf = await generateInvoicePdf(sale, config, logoBuffer, baseUrl);
     res.setHeader('Content-Type', 'application/pdf');
     res.setHeader('Content-Disposition', `attachment; filename=${sale.InvoiceNumber || 'invoice'}.pdf`);
     return res.send(pdfBuf);
