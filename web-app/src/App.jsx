@@ -22,7 +22,10 @@ const PAGES = {
 };
 
 export default function App() {
-  const [auth, setAuth] = useState(null); // null = not authenticated
+  const [auth, setAuth] = useState(() => {
+    const token = localStorage.getItem('jwt_token') || localStorage.getItem('token');
+    return token ? { authenticated: true, token } : null;
+  });
   const [page, setPage] = useState('dashboard');
   const [mobileOpen, setMobileOpen] = useState(false);
 
@@ -51,6 +54,8 @@ export default function App() {
         mobileOpen={mobileOpen}
         onCloseMobile={() => setMobileOpen(false)}
         onLogout={() => {
+          localStorage.removeItem('jwt_token');
+          localStorage.removeItem('token');
           window.api.logout();
           setAuth(null);
         }}

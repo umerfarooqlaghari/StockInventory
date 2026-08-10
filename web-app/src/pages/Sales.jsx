@@ -86,10 +86,15 @@ export default function Sales() {
   const [zatcaQrDataUrl, setZatcaQrDataUrl] = useState(null);
 
   useEffect(() => {
-    if (detail?._id) {
-      window.api.getZatcaQr(detail._id.toString()).then((res) => {
-        if (res?.dataUrl) setZatcaQrDataUrl(res.dataUrl);
-      }).catch(() => setZatcaQrDataUrl(null));
+    if (detail?._id && typeof window.api?.getZatcaQr === 'function') {
+      try {
+        window.api.getZatcaQr(detail._id.toString()).then((res) => {
+          const url = res?.data?.dataUrl || res?.dataUrl || (typeof res?.data === 'string' ? res.data : null);
+          setZatcaQrDataUrl(url);
+        }).catch(() => setZatcaQrDataUrl(null));
+      } catch (e) {
+        setZatcaQrDataUrl(null);
+      }
     } else {
       setZatcaQrDataUrl(null);
     }
@@ -261,16 +266,6 @@ export default function Sales() {
                     <span style={{ fontWeight: 700, fontSize: 13, color: '#15803D' }}>
                       🟢 ZATCA E-Invoicing Phase-2 ({detail.ZatcaStatus || 'CLEARED'})
                     </span>
-                    <button
-                      type="button"
-                      className="btn btn-secondary btn-sm"
-                      onClick={() => {
-                        const token = localStorage.getItem('token');
-                        window.open(`/api/zatca/xml/${detail._id}?token=${token}`, '_blank');
-                      }}
-                    >
-                      📜 Download ZATCA UBL 2.1 XML
-                    </button>
                   </div>
                 </div>
               </div>
