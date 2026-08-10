@@ -257,7 +257,7 @@ export default function Settings() {
               </div>
 
               <div className="form-group">
-                <label className="form-label">VAT Rate (%)</label>
+                <label className="form-label">VAT Rate (%) *</label>
                 <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
                   <input
                     type="number"
@@ -272,6 +272,53 @@ export default function Settings() {
                   <button type="button" className="btn btn-secondary btn-sm" onClick={() => set('TaxRate', 0)}>Set 0%</button>
                 </div>
                 <p style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 6 }}>Used for calculating VAT breakdown on sales, purchases, and invoices.</p>
+              </div>
+
+              {/* ZATCA Tax Registration */}
+              <div className="form-group" style={{ background: 'var(--bg)', padding: 14, borderRadius: 8, border: '1px solid var(--border)' }}>
+                <label className="form-label" style={{ color: 'var(--blue)', fontSize: 13, fontWeight: 700 }}>
+                  🇸🇦 Seller VAT Registration Number (ZATCA KSA Mandatory) *
+                </label>
+                <input
+                  className="form-input"
+                  placeholder="e.g. 300123456700003"
+                  value={config.SellerVatNumber || config.VATRegistrationNumber || ''}
+                  onChange={(e) => {
+                    set('SellerVatNumber', e.target.value);
+                    set('VATRegistrationNumber', e.target.value);
+                  }}
+                  style={{ fontWeight: 600, letterSpacing: '0.05em' }}
+                />
+                <p style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 4 }}>
+                  ZATCA Requirement (BR-KSA-40): 15-digit Tax Identification Number starting and ending with digit 3. Required for all KSA electronic invoices and QR code generation.
+                </p>
+              </div>
+
+              {/* ZATCA Phase-2 KSA Credentials */}
+              <div style={{ borderTop: '1px solid var(--border)', marginTop: 16, paddingTop: 16 }}>
+                <h4 style={{ fontWeight: 700, fontSize: 13, marginBottom: 10, color: 'var(--text)' }}>
+                  ZATCA National Address &amp; Commercial Reg. (CRN)
+                </h4>
+                <div className="form-row form-row-2">
+                  <div className="form-group">
+                    <label className="form-label">Commercial Registration (CRN)</label>
+                    <input className="form-input" placeholder="1010000000" value={config.CRN || ''} onChange={(e) => set('CRN', e.target.value)} />
+                  </div>
+                  <div className="form-group">
+                    <label className="form-label">Building Number (4 Digits)</label>
+                    <input className="form-input" placeholder="1234" value={config.BuildingNumber || ''} onChange={(e) => set('BuildingNumber', e.target.value)} />
+                  </div>
+                </div>
+                <div className="form-row form-row-2">
+                  <div className="form-group">
+                    <label className="form-label">Street Name &amp; District</label>
+                    <input className="form-input" placeholder="King Fahd Rd, Olaya" value={config.StreetName || ''} onChange={(e) => set('StreetName', e.target.value)} />
+                  </div>
+                  <div className="form-group">
+                    <label className="form-label">Postal Code &amp; City</label>
+                    <input className="form-input" placeholder="12211 Riyadh" value={config.PostalCode || ''} onChange={(e) => set('PostalCode', e.target.value)} />
+                  </div>
+                </div>
               </div>
             </div>
 

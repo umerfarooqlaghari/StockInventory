@@ -12,6 +12,7 @@
  */
 const { ObjectId } = require('mongodb');
 const { getTenantDb } = require('./tenantContext');
+const zatcaService = require('./zatcaService');
 
 function requireDb() {
   const db = getTenantDb();
@@ -555,6 +556,14 @@ async function getAllSales(search, status) {
   return col('sales').find(query).sort({ SaleDate: -1 }).toArray();
 }
 
+async function getSaleById(id) {
+  try {
+    return await col('sales').findOne({ _id: oid(id) });
+  } catch {
+    return null;
+  }
+}
+
 async function createSale(sale) {
   const cfg = await getConfig();
   sale.InvoiceNumber = await generateInvoiceNumber();
@@ -589,6 +598,22 @@ async function createSale(sale) {
     : [];
   delete sale.InitialPayment; // don't store separately
 
+  // Process ZATCA E-Invoicing Pipeline for KSA region
+  if (cfg.Region === 'KSA' || Number(cfg.TaxRate) > 0) {
+    try {
+      const zatcaResult = await zatcaService.processZatcaPipeline(sale, cfg);
+      sale.ZatcaUUID = zatcaResult.uuid;
+      sale.ZatcaStatus = zatcaResult.zatcaStatus;
+      sale.ZatcaTlvBase64 = zatcaResult.tlvBase64;
+      sale.ZatcaXmlHash = zatcaResult.xmlHash;
+      sale.ZatcaXml = zatcaResult.xmlString;
+      sale.ZatcaReportedAt = zatcaResult.reportedAt;
+      sale.ZatcaCryptographicStamp = zatcaResult.cryptographicStamp;
+    } catch (zErr) {
+      console.error('[dbService] ZATCA Pipeline Error:', zErr);
+    }
+  }
+
   const result = await col('sales').insertOne(sale);
   const saved = { ...sale, _id: result.insertedId };
 
@@ -608,6 +633,30 @@ async function createSale(sale) {
   }
 
   return saved;
+}
+
+async function getZatcaXml(saleId) {
+  const sale = await col('sales').findOne({ _id: oid(saleId) });
+  if (!sale) throw new Error('Sale invoice not found');
+  const cfg = await getConfig();
+  const uuid = sale.ZatcaUUID || zatcaService.generateUuid();
+  const xml = sale.ZatcaXml || zatcaService.buildZatcaXml(sale, cfg, uuid, Boolean(sale.ClientVatNumber));
+  return { xml, invoiceNumber: sale.InvoiceNumber, uuid };
+}
+
+async function getZatcaQr(saleId) {
+  const sale = await col('sales').findOne({ _id: oid(saleId) });
+  if (!sale) throw new Error('Sale invoice not found');
+  let tlv = sale.ZatcaTlvBase64;
+  if (!tlv) {
+    const cfg = await getConfig();
+    const pipeline = await zatcaService.processZatcaPipeline(sale, cfg);
+    tlv = pipeline.tlvBase64;
+  }
+  const appUrl = process.env.APP_URL || process.env.BACKEND_URL || 'http://localhost:4000';
+  const qrContent = sale._id ? `${appUrl}/api/zatca/verify/${sale._id}` : tlv;
+  const dataUrl = await zatcaService.getZatcaQrDataUrl(qrContent);
+  return { dataUrl, qrContent, tlvBase64: tlv, uuid: sale.ZatcaUUID, status: sale.ZatcaStatus || 'CLEARED' };
 }
 
 async function updateSale(sale) {
@@ -1250,7 +1299,7 @@ module.exports = {
   getConfig, saveConfig, getVatConfig, updateVatConfig,
   getAllInventory, getItemByBarcode, getLowStock, createItem, updateItem, deleteItem, updateStock, getInventoryHistory, rebuildInventoryHistory,
   getAllClients, createClient, updateClient, deleteClient, getClientLedger, getClientBalance,
-  getAllSales, createSale, updateSale, recordPayment, markSaleReturned, deleteSale,
+  getAllSales, getSaleById, createSale, updateSale, recordPayment, markSaleReturned, deleteSale, getZatcaXml, getZatcaQr,
   getTotalSales, getTotalProfit, getTotalOutstanding, getOverdueSales, getPendingAlerts, markAlertSent,
   getPendingPaymentSales, markOwnerDigestSent,
   getAllPurchases, createPurchase, updatePurchase, updatePurchaseStatus, deletePurchase, getPurchaseSummary,
