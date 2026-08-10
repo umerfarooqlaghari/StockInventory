@@ -162,7 +162,7 @@ export default function Settings() {
       </div>
 
       <div className="page-body">
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 20 }}>
+        <div className="settings-grid">
           {/* Company */}
           <div className="card card-body">
             <h3 style={{ fontWeight: 700, fontSize: 14, marginBottom: 16 }}>Company Information</h3>
@@ -375,7 +375,7 @@ export default function Settings() {
           </div>
 
           {/* Email Template */}
-          <div className="card card-body" style={{ gridColumn: 'span 2' }}>
+          <div className="card card-body col-span-2">
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 4 }}>
               <h3 style={{ fontWeight: 700, fontSize: 14 }}>Email Alert Template</h3>
               <button
@@ -431,7 +431,7 @@ export default function Settings() {
           </div>
 
           {/* Excel Import */}
-          <div className="card card-body" style={{ gridColumn: 'span 2' }}>
+          <div className="card card-body col-span-2">
             <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: 4 }}>
               <h3 style={{ fontWeight: 700, fontSize: 14 }}>Data Migration — Excel Import</h3>
               <div style={{ display: 'flex', gap: 8 }}>

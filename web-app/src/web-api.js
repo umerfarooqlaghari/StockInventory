@@ -98,6 +98,7 @@ const webApi = {
 
   // Inventory
   getInventory: (search) => rpc('getAllInventory', [search]),
+  getItemByBarcode: (barcode) => rpc('getItemByBarcode', [barcode]),
   getLowStock: () => rpc('getLowStock'),
   createItem: (item) => rpc('createItem', [item]),
   updateItem: (item) => rpc('updateItem', [item]),

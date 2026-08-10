@@ -82,7 +82,7 @@ export default function Dashboard() {
         </div>
 
         {/* Secondary KPIs */}
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5,1fr)', gap: 12, marginBottom: 24 }}>
+        <div className="kpi-grid-5">
           {kpis2.map((k) => (
             <div key={k.label} className="card card-body" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '14px 18px' }}>
               <span style={{ fontSize: 12, color: 'var(--text-muted)', fontWeight: 600 }}>{k.label}</span>
@@ -96,10 +96,11 @@ export default function Dashboard() {
         <div className="dash-grid-2">
           {/* Recent Sales */}
           <div className="card">
-            <div className="card-body" style={{ padding: '18px 20px 0' }}>
+            <div className="card-body" style={{ padding: '18px 20px 12px' }}>
               <p className="section-title">Recent Sales</p>
             </div>
-            <div className="table-wrap">
+            {/* Desktop Table View */}
+            <div className="desktop-only-table table-wrap">
               <table>
                 <thead>
                   <tr><th>Invoice</th><th>Client</th><th>Date</th><th>Total</th><th>Status</th></tr>
@@ -119,15 +120,34 @@ export default function Dashboard() {
                 </tbody>
               </table>
             </div>
+            {/* Mobile Card View (100% Mobile Screen Bounds) */}
+            <div className="mobile-widget-list">
+              {(d.recentSales || []).length === 0 ? (
+                <div className="text-center text-muted" style={{ padding: 16, fontSize: 13 }}>No sales yet</div>
+              ) : (d.recentSales || []).map((s) => (
+                <div key={s._id} className="dash-widget-card">
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <span className="mono" style={{ fontWeight: 700 }}>{s.InvoiceNumber}</span>
+                    <StatusBadge status={s.PaymentStatus} />
+                  </div>
+                  <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text)' }}>{s.ClientName}</div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: 12, marginTop: 2 }}>
+                    <span className="text-muted">{fmtDate(s.SaleDate)}</span>
+                    <span className="fw-bold" style={{ color: 'var(--blue)' }}>{fmt(s.TotalAmount)}</span>
+                  </div>
+                </div>
+              ))}
+            </div>
           </div>
 
           {/* Low Stock */}
           <div>
             <div className="card" style={{ marginBottom: 16 }}>
-              <div className="card-body" style={{ padding: '18px 20px 0' }}>
+              <div className="card-body" style={{ padding: '18px 20px 12px' }}>
                 <p className="section-title">Low Stock Items</p>
               </div>
-              <div className="table-wrap">
+              {/* Desktop Table View */}
+              <div className="desktop-only-table table-wrap">
                 <table>
                   <thead><tr><th>Item</th><th>Size</th><th>Stock</th><th>Reorder</th></tr></thead>
                   <tbody>
@@ -144,14 +164,32 @@ export default function Dashboard() {
                   </tbody>
                 </table>
               </div>
+              {/* Mobile Card View */}
+              <div className="mobile-widget-list">
+                {(d.lowStockItems || []).length === 0 ? (
+                  <div className="text-center text-muted" style={{ padding: 16, fontSize: 13 }}>All items well-stocked ✓</div>
+                ) : (d.lowStockItems || []).map((item) => (
+                  <div key={item._id} className="dash-widget-card" style={{ background: '#FFF8F8', border: '1px solid #FEE2E2' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                      <strong style={{ fontSize: 13 }}>{item.StockName}</strong>
+                      <span className="badge badge-red">{item.CurrentStock} {item.Unit}</span>
+                    </div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, color: 'var(--text-muted)' }}>
+                      <span>Code: {item.ItemCode} {item.PlateSize ? `· ${item.PlateSize}` : ''}</span>
+                      <span>Reorder: {item.ReorderLevel}</span>
+                    </div>
+                  </div>
+                ))}
+              </div>
             </div>
 
             {/* Overdue */}
             <div className="card">
-              <div className="card-body" style={{ padding: '18px 20px 0' }}>
+              <div className="card-body" style={{ padding: '18px 20px 12px' }}>
                 <p className="section-title">Overdue Invoices (45+ days)</p>
               </div>
-              <div className="table-wrap">
+              {/* Desktop Table View */}
+              <div className="desktop-only-table table-wrap">
                 <table>
                   <thead><tr><th>Invoice</th><th>Client</th><th>Balance</th><th>Days</th></tr></thead>
                   <tbody>
@@ -170,6 +208,27 @@ export default function Dashboard() {
                     })}
                   </tbody>
                 </table>
+              </div>
+              {/* Mobile Card View */}
+              <div className="mobile-widget-list">
+                {(d.overdueSales || []).length === 0 ? (
+                  <div className="text-center text-muted" style={{ padding: 16, fontSize: 13 }}>No overdue invoices ✓</div>
+                ) : (d.overdueSales || []).map((s) => {
+                  const days = Math.floor((Date.now() - new Date(s.SaleDate).getTime()) / 86400000);
+                  return (
+                    <div key={s._id} className="dash-widget-card">
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                        <span className="mono" style={{ fontWeight: 700 }}>{s.InvoiceNumber}</span>
+                        <span className="badge badge-red">{days}d overdue</span>
+                      </div>
+                      <div style={{ fontSize: 13, fontWeight: 600 }}>{s.ClientName}</div>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, marginTop: 2 }}>
+                        <span className="text-muted">Balance Due</span>
+                        <span className="text-danger fw-bold">{fmt(s.Balance)}</span>
+                      </div>
+                    </div>
+                  );
+                })}
               </div>
             </div>
           </div>

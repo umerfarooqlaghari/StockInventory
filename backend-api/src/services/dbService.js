@@ -184,12 +184,27 @@ async function getAllInventory(search) {
         $or: [
           { StockName: { $regex: search, $options: 'i' } },
           { ItemCode: { $regex: search, $options: 'i' } },
+          { Barcode: { $regex: search, $options: 'i' } },
           { PlateSize: { $regex: search, $options: 'i' } },
           { Category: { $regex: search, $options: 'i' } },
         ],
       }
     : {};
   return col('inventory_items').find(query).sort({ StockName: 1 }).toArray();
+}
+
+async function getItemByBarcode(barcode) {
+  if (!barcode) return null;
+  const clean = String(barcode).trim();
+  const item = await col('inventory_items').findOne({
+    $or: [
+      { Barcode: clean },
+      { ItemCode: clean },
+      { Barcode: { $regex: `^${clean}$`, $options: 'i' } },
+      { ItemCode: { $regex: `^${clean}$`, $options: 'i' } },
+    ],
+  });
+  return item;
 }
 
 async function getLowStock(threshold = 10) {
@@ -1233,7 +1248,7 @@ module.exports = {
   ensureIndexes,
   ensureMasterDataSeed,
   getConfig, saveConfig, getVatConfig, updateVatConfig,
-  getAllInventory, getLowStock, createItem, updateItem, deleteItem, updateStock, getInventoryHistory, rebuildInventoryHistory,
+  getAllInventory, getItemByBarcode, getLowStock, createItem, updateItem, deleteItem, updateStock, getInventoryHistory, rebuildInventoryHistory,
   getAllClients, createClient, updateClient, deleteClient, getClientLedger, getClientBalance,
   getAllSales, createSale, updateSale, recordPayment, markSaleReturned, deleteSale,
   getTotalSales, getTotalProfit, getTotalOutstanding, getOverdueSales, getPendingAlerts, markAlertSent,

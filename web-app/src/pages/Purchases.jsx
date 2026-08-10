@@ -168,7 +168,7 @@ export default function Purchases() {
       </div>
 
       <div className="page-body">
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 16, marginBottom: 16 }}>
+        <div className="kpi-grid-4">
           <div className="card card-body" style={{ padding: '12px 18px' }}>
             <span className="text-muted" style={{ fontSize: 12 }}>Total Orders</span>
             <strong style={{ display: 'block', fontSize: 20 }}>{summary.totalOrders}</strong>
@@ -258,7 +258,7 @@ export default function Purchases() {
             <button className="btn btn-secondary" onClick={() => setDetail(null)}>Close</button>
           </>
         }>
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr', gap: 12, marginBottom: 20 }}>
+          <div className="kpi-grid-4" style={{ marginBottom: 20 }}>
             {[['Supplier', detail.SupplierName || '—'], ['Date', fmtDate(detail.PurchaseDate)], ['Status', displayStatus(detail)], ['Total Cost', fmt(detail.TotalCost)]].map(([l, v]) => (
               <div key={l} style={{ background: 'var(--bg)', borderRadius: 6, padding: '10px 14px' }}>
                 <div style={{ fontSize: 11, color: 'var(--text-muted)', fontWeight: 600 }}>{l}</div>
@@ -592,7 +592,7 @@ function CreatePurchaseModal({ onClose, onSaved }) {
 
       <div style={{ background: 'var(--bg)', borderRadius: 8, padding: 16, marginBottom: 16 }}>
         <p style={{ fontWeight: 700, fontSize: 13, marginBottom: 10 }}>Add Item</p>
-        <div style={{ display: 'grid', gridTemplateColumns: '2fr 80px 140px auto', gap: 8, alignItems: 'end' }}>
+        <div className="line-item-grid">
           <div>
             <label className="form-label">Item</label>
             <select className="form-select" value={newItem.inventoryId} onChange={(e) => {
@@ -744,7 +744,7 @@ function EditPurchaseModal({ purchase, onClose, onSaved }) {
 
       <div style={{ background: 'var(--bg)', borderRadius: 8, padding: 16, marginBottom: 16 }}>
         <p style={{ fontWeight: 700, fontSize: 13, marginBottom: 10 }}>Add / Replace Items</p>
-        <div style={{ display: 'grid', gridTemplateColumns: '2fr 80px 140px auto', gap: 8, alignItems: 'end' }}>
+        <div className="line-item-grid">
           <div>
             <label className="form-label">Item</label>
             <select className="form-select" value={newItem.inventoryId} onChange={(e) => {

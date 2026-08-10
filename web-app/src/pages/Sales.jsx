@@ -195,7 +195,7 @@ export default function Sales() {
             <button className="btn btn-secondary" onClick={() => setDetail(null)}>Close</button>
           </>
         }>
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 20 }}>
+          <div className="form-row-2" style={{ marginBottom: 20 }}>
             {[['Client', detail.ClientName], ['Phone', detail.ClientPhone || '—'], ['Date', fmtDate(detail.SaleDate)], ['Due Date', fmtDate(detail.DueDate)]].map(([l, v]) => (
               <div key={l} style={{ background: 'var(--bg)', borderRadius: 6, padding: '10px 14px' }}>
                 <div style={{ fontSize: 11, color: 'var(--text-muted)', fontWeight: 600 }}>{l}</div>
@@ -330,7 +330,7 @@ function RecordPaymentModal({ sale, onClose, onSaved }) {
       {error && <div className="notice notice-error" style={{ marginBottom: 12 }}>{error}</div>}
 
       {/* Summary */}
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginBottom: 16 }}>
+      <div className="form-row-2" style={{ marginBottom: 16 }}>
         {[['Total Amount', fmt(sale.TotalAmount)], ['Already Paid', fmt(sale.PaidAmount)], ['Outstanding Balance', fmt(remaining)]].map(([l, v]) => (
           <div key={l} style={{ background: 'var(--bg)', borderRadius: 6, padding: '10px 14px' }}>
             <div style={{ fontSize: 11, color: 'var(--text-muted)', fontWeight: 600 }}>{l}</div>
@@ -549,7 +549,7 @@ function CreateSaleModal({ onClose, onSaved }) {
         <p style={{ fontWeight: 700, fontSize: 13, marginBottom: 10 }}>
           Add Line Item <span style={{ fontWeight: 400, color: 'var(--text-muted)', fontSize: 12 }}>(fill and click + Add; repeat for multiple items)</span>
         </p>
-        <div style={{ display: 'grid', gridTemplateColumns: '2fr 80px 120px 110px auto', gap: 8, alignItems: 'end' }}>
+        <div className="line-item-grid">
           <div>
             <label className="form-label">Item</label>
             <select className="form-select" value={newItem.inventoryId} onChange={(e) => {
@@ -629,7 +629,7 @@ function CreateSaleModal({ onClose, onSaved }) {
       </div>
 
       {/* Totals + payment */}
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
+      <div className="form-row-2">
         <div>
           <div className="form-group">
             <label className="form-label">Overall Discount ({getCurrencySymbol()})</label>
@@ -807,7 +807,7 @@ function EditSaleModal({ sale, onClose, onSaved }) {
 
       <div style={{ background: 'var(--bg)', borderRadius: 8, padding: 16, marginBottom: 12 }}>
         <p style={{ fontWeight: 700, fontSize: 13, marginBottom: 10 }}>Add Line Item</p>
-        <div style={{ display: 'grid', gridTemplateColumns: '2fr 80px 120px 110px auto', gap: 8, alignItems: 'end' }}>
+        <div className="line-item-grid">
           <div>
             <label className="form-label">Item</label>
             <select className="form-select" value={newItem.inventoryId} onChange={(e) => {
@@ -857,7 +857,7 @@ function EditSaleModal({ sale, onClose, onSaved }) {
         </table>
       </div>
 
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
+      <div className="form-row-2">
         <div>
           <div className="form-group">
             <label className="form-label">Overall Discount ({getCurrencySymbol()})</label>

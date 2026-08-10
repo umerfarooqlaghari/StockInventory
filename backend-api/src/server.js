@@ -50,7 +50,7 @@ app.get('/api/health', (_req, res) => res.json({ status: 'ok' }));
 // Tenant context is already set by authMiddleware.
 const ALLOWED_METHODS = new Set([
   'getConfig', 'saveConfig', 'getVatConfig', 'updateVatConfig',
-  'getAllInventory', 'getLowStock', 'createItem', 'updateItem', 'deleteItem',
+  'getAllInventory', 'getItemByBarcode', 'getLowStock', 'createItem', 'updateItem', 'deleteItem',
   'updateStock', 'getInventoryHistory', 'rebuildInventoryHistory',
   'getAllClients', 'createClient', 'updateClient', 'deleteClient',
   'getClientLedger', 'getClientBalance',
