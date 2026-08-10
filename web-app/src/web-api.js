@@ -160,6 +160,8 @@ const webApi = {
   markSaleReturned: (saleId) => rpc('markSaleReturned', [saleId]),
   notifySaleNow: (saleId) => request(`/sales/${saleId}/notify`, { method: 'POST' }),
   generateInvoicePdf: (saleId) => triggerDownload(`${API_BASE}/sales/${saleId}/pdf`, `invoice_${saleId}.pdf`),
+  getZatcaQr: (saleId) => rpc('getZatcaQr', [saleId]),
+  getZatcaXml: (saleId) => rpc('getZatcaXml', [saleId]),
   deleteSale: (id) => rpc('deleteSale', [id]),
   exportSalesExcel: () => triggerDownload(`${API_BASE}/sales/export`, `sales_${Date.now()}.xlsx`),
 
