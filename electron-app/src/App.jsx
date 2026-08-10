@@ -22,7 +22,10 @@ const PAGES = {
 };
 
 export default function App() {
-  const [auth, setAuth] = useState(null); // null = not authenticated
+  const [auth, setAuth] = useState(() => {
+    const token = localStorage.getItem('jwt_token') || localStorage.getItem('token');
+    return token ? { authenticated: true, token } : null;
+  });
   const [page, setPage] = useState('dashboard');
 
   if (!auth) {
@@ -33,6 +36,8 @@ export default function App() {
   return (
     <div className="app">
       <Sidebar current={page} onNavigate={setPage} onLogout={() => {
+        localStorage.removeItem('jwt_token');
+        localStorage.removeItem('token');
         window.api.logout();
         setAuth(null);
       }} />
